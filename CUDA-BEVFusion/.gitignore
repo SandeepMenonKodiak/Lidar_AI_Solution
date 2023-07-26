@@ -10,3 +10,4 @@ tool/__pycache__/
 model
 example-data
 src/test
+*.zip
