@@ -10,7 +10,8 @@ RUN git clone --recursive https://github.com/SandeepMenonKodiak/Lidar_AI_Solutio
 WORKDIR Lidar_AI_Solution/CUDA-BEVFusion
 
 RUN apt install libprotobuf-dev -y
-RUN pip install onnx
 
 COPY example-data/ /home/Lidar_AI_Solution/CUDA-BEVFusion/example-data/
 COPY model/ /home/Lidar_AI_Solution/CUDA-BEVFusion/model/
+RUN pip install --upgrade pip
+RUN pip install -r tools/requirements.txt
