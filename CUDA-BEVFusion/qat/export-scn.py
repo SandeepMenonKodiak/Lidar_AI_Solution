@@ -26,7 +26,8 @@ from mmcv.cnn import fuse_conv_bn
 from mmcv import Config
 from mmdet3d.models import build_model
 from mmdet3d.utils import recursive_eval
-from mmcv.runner import wrap_fp16_model
+from mmcv.runner import wrap_fp16_model, load_checkpoint
+
 import torch
 import argparse
 import os
@@ -36,10 +37,18 @@ import lean.funcs as funcs
 import lean.exptool as exptool
 import lean.quantize as quantize 
 
+def load_model(cfg, checkpoint_path = None):
+    model = build_model(cfg.model)
+    if checkpoint_path != None:
+        checkpoint = load_checkpoint(model, checkpoint_path, map_location="cpu")
+    return model
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Export scn to onnx file")
     parser.add_argument("--in-channel", type=int, default=5, help="SCN num of input channels")
+    parser.add_argument("--config", metavar="FILE", default="bevfusion/configs/nuscenes/det/transfusion/secfpn/camera+lidar/resnet50/convfuser.yaml", help="config file")
     parser.add_argument("--ckpt", type=str, default="qat/ckpt/bevfusion_ptq.pth", help="SCN Checkpoint (scn backbone checkpoint)")
     parser.add_argument("--save", type=str, default="qat/onnx/lidar.backbone.onnx", help="output onnx")
     parser.add_argument("--inverse", action="store_true", help="Transfer the coordinate order of the index from xyz to zyx")
@@ -52,7 +61,12 @@ if __name__ == "__main__":
         args.save = os.path.splitext(args.save)[0] + ".xyz.onnx"
     
     os.makedirs(os.path.dirname(args.save), exist_ok=True)
-    model = torch.load(args.ckpt).module
+    configs.load(args.config, recursive=True)
+    cfg = Config(recursive_eval(configs), filename=args.config)
+
+    model = load_model(cfg, checkpoint_path = args.ckpt)
+
+    # model = torch.load(args.ckpt).module
     model.eval().cuda().half()
     model = model.encoders.lidar.backbone
 
