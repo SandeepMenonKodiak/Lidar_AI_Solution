@@ -104,10 +104,12 @@ class SubclassLSSTransformModule(nn.Module):
             x = x.view(B * N, C, fH, fW)
 
             x = self.depthnet(x)
-
             depth = x[:, : self.D].softmax(dim=1)
-            feat  = x[:, self.D : (self.D + self.C)].permute(0, 2, 3, 1)
-            return feat, depth
+            x = depth.unsqueeze(1) * x[:, self.D : (self.D + self.C)].unsqueeze(2)
+            x = x.view(B, N, self.C, self.D, fH, fW)
+            x = x.permute(0, 1, 3, 4, 5, 2)
+
+            return x
         
         return get_lss_feats(self.model.encoders.camera.vtransform, feat)
 
@@ -148,15 +150,15 @@ def main():
     os.makedirs(save_root, exist_ok=True)
 
     with torch.no_grad():
-        camera_backbone_onnx = f"{save_root}/seg_camera.backbone.onnx"
-        camera_vtransform_onnx = f"{save_root}/seg_camera.vtransform.onnx"
+        camera_backbone_onnx = f"{save_root}/camera.backbone.onnx"
+        camera_vtransform_onnx = f"{save_root}/camera.vtransform.onnx"
         TensorQuantizer.use_fb_fake_quant = True
         torch.onnx.export(
             camera_model,
             (img),
             camera_backbone_onnx,
-            input_names=["img", "depth"],
-            output_names=["camera_feature", "camera_depth_weights"],
+            input_names=["img"],
+            output_names=["camera_feature"],
             opset_version=13,
             do_constant_folding=True,
         )

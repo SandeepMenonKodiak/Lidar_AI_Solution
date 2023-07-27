@@ -302,9 +302,9 @@ if __name__ == "__main__":
         # )
         # print(f"🚀 The export is completed. ONNX save as {boxhead_onnx_path} 🤗, Have a nice day~")
 
-        seghead_onnx_path = f"{save_root}/seg_head.bbox.onnx"
+        seghead_onnx_path = f"{save_root}/head.map.onnx"
         torch.onnx.export(headseg, head_input, f"{save_root}/head.bbox.onnx", opset_version=16, 
             input_names=["middle"],
-            output_names=["score", "rot", "dim", "reg", "height", "vel"],
+            output_names=["ground_map"],
         )
         print(f"🚀 The export is completed. ONNX save as {seghead_onnx_path} 🤗, Have a nice day~")
