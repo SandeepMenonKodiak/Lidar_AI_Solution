@@ -127,19 +127,19 @@ def main():
 
     #Create Model
     model = load_model(cfg, checkpoint_path = args.ckpt)
-    model = quantize_net(model)
+    # model = quantize_net(model)
     model = fuse_conv_bn(model)
     model = MMDataParallel(model, device_ids=[0])
     model.eval()
 
     ##Calibrate
     print("🔥 start calibrate 🔥 ")
-    quantize.set_quantizer_fast(model)
-    quantize.calibrate_model(model, data_loader_train, 0, None, args.calibrate_batch)
+    # quantize.set_quantizer_fast(model)
+    # quantize.calibrate_model(model, data_loader_train, 0, None, args.calibrate_batch)
     
-    quantize.disable_quantization(model.module.encoders.lidar.backbone.conv_input).apply()
-    quantize.disable_quantization(model.module.decoder.neck.deblocks[0][0]).apply()
-    quantize.print_quantizer_status(model)
+    # quantize.disable_quantization(model.module.encoders.lidar.backbone.conv_input).apply()
+    # quantize.disable_quantization(model.module.decoder.neck.deblocks[0][0]).apply()
+    # quantize.print_quantizer_status(model)
     
     print(f"Done due to ptq only! Save checkpoint to {save_path} 🤗")
     model.module.encoders.lidar.backbone = funcs.fuse_relu_only(model.module.encoders.lidar.backbone)

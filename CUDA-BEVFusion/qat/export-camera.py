@@ -38,10 +38,13 @@ from mmdet3d.utils import recursive_eval
 
 from torch import nn
 from pytorch_quantization.nn.modules.tensor_quantizer import TensorQuantizer
+from mmcv.runner import  load_checkpoint
+
 import lean.quantize as quantize
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Export bevfusion model")
+    parser.add_argument("--config", metavar="FILE", default="bevfusion/configs/nuscenes/det/transfusion/secfpn/camera+lidar/resnet50/convfuser.yaml", help="config file")
     parser.add_argument('--ckpt', type=str, default='qat/ckpt/bevfusion_ptq.pth')
     parser.add_argument('--fp16', action= 'store_true')
     args = parser.parse_args()
@@ -79,10 +82,53 @@ class SubclassCameraModule(nn.Module):
         
         return get_cam_feats(self.model.encoders.camera.vtransform, feat, depth)
 
+class SubclassLSSTransformModule(nn.Module):
+    def __init__(self, model):
+        super(SubclassLSSTransformModule, self).__init__()
+        self.model = model
+
+    def forward(self, img):
+        B, N, C, H, W = img.size()
+        img = img.view(B * N, C, H, W)
+
+        feat = self.model.encoders.camera.backbone(img)
+        feat = self.model.encoders.camera.neck(feat)
+        if not isinstance(feat, torch.Tensor):
+            feat = feat[0]
+
+        BN, C, H, W = map(int, feat.size())
+        feat = feat.view(B, int(BN / B), C, H, W)
+
+        def get_lss_feats(self, x):
+            B, N, C, fH, fW = map(int, x.shape)
+            x = x.view(B * N, C, fH, fW)
+
+            x = self.depthnet(x)
+            depth = x[:, : self.D].softmax(dim=1)
+            x = depth.unsqueeze(1) * x[:, self.D : (self.D + self.C)].unsqueeze(2)
+            x = x.view(B, N, self.C, self.D, fH, fW)
+            x = x.permute(0, 1, 3, 4, 5, 2)
+
+            return x
+        
+        return get_lss_feats(self.model.encoders.camera.vtransform, feat)
+
+
+def load_model(cfg, checkpoint_path = None):
+    model = build_model(cfg.model)
+    if checkpoint_path != None:
+        checkpoint = load_checkpoint(model, checkpoint_path, map_location="cpu")
+    return model
+
 def main():
     args = parse_args()
+    configs.load(args.config, recursive=True)
+    cfg = Config(recursive_eval(configs), filename=args.config)
 
-    model  = torch.load(args.ckpt).module
+    # checkpoint = torch.load(args.ckpt)
+    model = load_model(cfg, checkpoint_path = args.ckpt)
+
+    # model  = checkpoint["state_dict"]
     suffix = "int8"
     if args.fp16:
         suffix = "fp16"
@@ -92,7 +138,7 @@ def main():
     img = data["img"].data[0].cuda()
     points = [i.cuda() for i in data["points"].data[0]]
 
-    camera_model = SubclassCameraModule(model)
+    camera_model = SubclassLSSTransformModule(model)
     camera_model.cuda().eval()
     depth = torch.zeros(len(points), img.shape[1], 1, img.shape[-2], img.shape[-1]).cuda()
 
@@ -109,10 +155,10 @@ def main():
         TensorQuantizer.use_fb_fake_quant = True
         torch.onnx.export(
             camera_model,
-            (img, depth),
+            (img),
             camera_backbone_onnx,
-            input_names=["img", "depth"],
-            output_names=["camera_feature", "camera_depth_weights"],
+            input_names=["img"],
+            output_names=["camera_feature"],
             opset_version=13,
             do_constant_folding=True,
         )
