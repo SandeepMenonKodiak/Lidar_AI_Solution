@@ -1,0 +1,17 @@
+GridSample:
+  attributes:
+    align_corners:
+      datatype: int32
+    mode:
+      datatype: char[]
+    padding_mode:
+      datatype: char[]
+  inputs:
+    tpg_input_0:
+      shape: 1x512x128x128
+  outputs:
+    tpg_output_0:
+      shape: 1x18x200x200
+  plugin_type: IPluginV2DynamicExt
+  support_format_combination:
+  - "float16+float16"

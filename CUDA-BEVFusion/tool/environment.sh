@@ -34,8 +34,8 @@ export CUDA_HOME=/usr/local/cuda
 export CUDNN_Lib=/usr/lib/x86_64-linux-gnu
 
 
-# resnet50/resnet50int8/swint
-export DEBUG_MODEL=swint
+# resnet50/resnet50int8/swint/segm
+export DEBUG_MODEL=segm
 
 # fp16/int8
 export DEBUG_PRECISION=fp16

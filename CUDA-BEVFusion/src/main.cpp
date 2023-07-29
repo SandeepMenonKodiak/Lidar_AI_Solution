@@ -265,6 +265,25 @@ std::shared_ptr<bevfusion::Core> create_core_mapseg(const std::string& model, co
     geometry.num_camera = 6;
     geometry.geometry_dim = nvtype::Int3(360, 360, 80);
 
+    bevfusion::head::transbbox::TransBBoxParameter transbbox;
+    transbbox.out_size_factor = 8;
+    transbbox.pc_range = {-54.0f, -54.0f};
+    transbbox.post_center_range_start = {-61.2, -61.2, -10.0};
+    transbbox.post_center_range_end = {61.2, 61.2, 10.0};
+    transbbox.voxel_size = {0.075, 0.075};
+    transbbox.model = nv::format("model/%s/build/head.bbox.plan", model.c_str());
+    transbbox.confidence_threshold = 0.12f;
+    transbbox.sorted_bboxes = true;
+    
+    bevfusion::CoreParameter param;
+    param.camera_model = nv::format("model/%s/build/camera.backbone.plan", model.c_str());
+    param.normalize = normalization;
+    param.lidar_scn = scn;
+    param.geometry = geometry;
+    param.transfusion = nv::format("model/%s/build/fuser.plan", model.c_str());
+    param.transbbox = transbbox;
+    param.camera_vtransform = nv::format("model/%s/build/camera.vtransform.plan", model.c_str());
+
 }
 int main(int argc, char** argv) {
 
@@ -276,7 +295,15 @@ int main(int argc, char** argv) {
   if (argc > 2) model     = argv[2];
   if (argc > 3) precision = argv[3];
 
-  auto core = create_core_bbox(model, precision);
+  printf("Data: %s\n", data);
+  printf("Model: %s\n", model);
+  printf("Precision: %s\n", precision);
+
+  if(model != "segm")
+    auto core = create_core_bbox(model, precision);
+  else
+    auto core = create_core_mapseg(model, precision);
+
   if (core == nullptr) {
     printf("Core has been failed.\n");
     return -1;

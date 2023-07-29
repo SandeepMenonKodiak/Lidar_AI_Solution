@@ -11,3 +11,5 @@ model
 example-data
 src/test
 *.zip
+*.o
+*.so

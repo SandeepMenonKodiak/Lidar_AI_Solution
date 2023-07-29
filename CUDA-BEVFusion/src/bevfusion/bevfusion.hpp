@@ -44,6 +44,7 @@ struct CoreParameter {
   lidar::SCNParameter lidar_scn;
   std::string transfusion;
   head::transbbox::TransBBoxParameter transbbox;
+  head::segm::SegMapParameter segm;
 };
 
 class Core {

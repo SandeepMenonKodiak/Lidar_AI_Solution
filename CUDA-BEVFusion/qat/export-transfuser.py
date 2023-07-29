@@ -26,7 +26,7 @@ from mmcv import Config
 from mmcv.runner.fp16_utils import auto_fp16
 from mmdet3d.models import build_model
 from mmdet3d.utils import recursive_eval
-from mmcv.runner import wrap_fp16_model
+from mmcv.runner import wrap_fp16_model, load_checkpoint
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -239,14 +239,36 @@ class SubclassFuser(nn.Module):
         x = self.parent.decoder["neck"](x)
         return x[0]
 
+
+class SubclassBEVSegHead(nn.Module):
+    def __init__(self, model):
+        super(SubclassBEVSegHead, self).__init__()
+        self.model = model
+
+    def forward(self, x):
+        x = self.model.transform(x)
+        x = self.model.classifier(x)
+        return x
+    
+
+def load_model(cfg, checkpoint_path = None):
+    model = build_model(cfg.model)
+    if checkpoint_path != None:
+        checkpoint = load_checkpoint(model, checkpoint_path, map_location="cpu")
+    return model
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Export transfusion to onnx file")
     parser.add_argument("--ckpt", type=str, default="qat/ckpt/bevfusion_ptq.pth", help="Pretrain model")
+    parser.add_argument("--config", metavar="FILE", default="bevfusion/configs/nuscenes/det/transfusion/secfpn/camera+lidar/resnet50/convfuser.yaml", help="config file")
     parser.add_argument('--fp16', action= 'store_true')
     args = parser.parse_args()
 
-    model = torch.load(args.ckpt).module
-    
+    configs.load(args.config, recursive=True)
+    cfg = Config(recursive_eval(configs), filename=args.config)
+    # model = torch.load(args.ckpt).module
+    model = load_model(cfg, checkpoint_path = args.ckpt)
+    # print("Model: ", model)
     suffix = "int8"
     if args.fp16:
         suffix = "fp16"
@@ -257,7 +279,8 @@ if __name__ == "__main__":
         
     model.eval()
     fuser    = SubclassFuser(model).cuda()
-    headbbox = SubclassHeadBBox(model).cuda()
+    # headbbox = SubclassHeadBBox(model).cuda()
+    headseg = SubclassBEVSegHead(model.heads['map']).cuda()
     
     TensorQuantizer.use_fb_fake_quant = True
     with torch.no_grad():
@@ -271,10 +294,17 @@ if __name__ == "__main__":
         )
         print(f"🚀 The export is completed. ONNX save as {fuser_onnx_path} 🤗, Have a nice day~")
 
-        boxhead_onnx_path = f"{save_root}/head.bbox.onnx"
+        # boxhead_onnx_path = f"{save_root}/head.bbox.onnx"
         head_input = torch.randn(1, 512, 180, 180).cuda()
-        torch.onnx.export(headbbox, head_input, f"{save_root}/head.bbox.onnx", opset_version=13, 
+        # torch.onnx.export(headbbox, head_input, f"{save_root}/head.bbox.onnx", opset_version=13, 
+        #     input_names=["middle"],
+        #     output_names=["score", "rot", "dim", "reg", "height", "vel"],
+        # )
+        # print(f"🚀 The export is completed. ONNX save as {boxhead_onnx_path} 🤗, Have a nice day~")
+
+        seghead_onnx_path = f"{save_root}/head.map.onnx"
+        torch.onnx.export(headseg, head_input, f"{save_root}/head.map.onnx", opset_version=16, 
             input_names=["middle"],
-            output_names=["score", "rot", "dim", "reg", "height", "vel"],
+            output_names=["ground_map"],
         )
-        print(f"🚀 The export is completed. ONNX save as {boxhead_onnx_path} 🤗, Have a nice day~")
+        print(f"🚀 The export is completed. ONNX save as {seghead_onnx_path} 🤗, Have a nice day~")
