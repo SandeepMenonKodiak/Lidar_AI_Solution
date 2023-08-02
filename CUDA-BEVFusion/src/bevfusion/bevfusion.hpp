@@ -31,10 +31,17 @@
 #include "camera-normalization.hpp"
 #include "camera-vtransform.hpp"
 #include "head-transbbox.hpp"
+#include "head-mapsegm.hpp"
 #include "lidar-scn.hpp"
 #include "transfusion.hpp"
 
 namespace bevfusion {
+
+enum HEAD
+{
+  TRANSBBOX = 0,
+  MAPSEGM = 1
+};
 
 struct CoreParameter {
   std::string camera_model;
@@ -44,12 +51,15 @@ struct CoreParameter {
   lidar::SCNParameter lidar_scn;
   std::string transfusion;
   head::transbbox::TransBBoxParameter transbbox;
-  head::segm::SegMapParameter segm;
+  head::mapsegm::MapSegHeadParameter mapsegm;
+  HEAD head_type;
 };
 
 class Core {
  public:
   virtual std::vector<head::transbbox::BoundingBox> forward(const unsigned char **camera_images, const nvtype::half *lidar_points,
+                                                            int num_points, void *stream) = 0;
+  virtual head::mapsegm::CanvasOutput forward_mapsegm(const unsigned char **camera_images, const nvtype::half *lidar_points,
                                                             int num_points, void *stream) = 0;
 
   virtual std::vector<head::transbbox::BoundingBox> forward_no_normalize(const nvtype::half *camera_normed_images_device,

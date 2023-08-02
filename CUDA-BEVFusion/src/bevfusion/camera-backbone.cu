@@ -84,5 +84,47 @@ std::shared_ptr<Backbone> create_backbone(const std::string& model) {
   return instance;
 }
 
+class SegmBackboneImplement : public SegmBackbone {
+ public:
+  virtual ~SegmBackboneImplement() {
+    if (feature_) checkRuntime(cudaFree(feature_));
+  }
+
+  bool init(const std::string& model) {
+    engine_ = TensorRT::load(model);
+    if (engine_ == nullptr) return false;
+
+    feature_dims_ = engine_->static_dims(1);
+    int32_t volumn = std::accumulate(feature_dims_.begin(), feature_dims_.end(), 1, std::multiplies<int32_t>());
+    checkRuntime(cudaMalloc(&feature_, volumn * sizeof(nvtype::half)));
+    camera_shape_ = {feature_dims_[0], feature_dims_[1], feature_dims_[2]};
+
+    return true;
+  }
+
+  virtual void print() override { engine_->print("Seg Camera Backbone"); }
+  virtual nvtype::half* feature() override { return feature_; }
+  virtual std::vector<int> feature_shape() override { return feature_dims_; }
+  virtual std::vector<int> camera_shape() override { return camera_shape_; }
+
+  virtual void forward(const nvtype::half* images, void* stream = nullptr) override {
+    engine_->forward({images, feature_}, static_cast<cudaStream_t>(stream));
+  }
+
+ private:
+  std::shared_ptr<TensorRT::Engine> engine_;
+  nvtype::half* feature_ = nullptr;
+  std::vector<int> feature_dims_, camera_shape_;
+};
+
+std::shared_ptr<SegmBackbone> create_segm_backbone(const std::string& model) {
+  std::shared_ptr<SegmBackboneImplement> instance(new SegmBackboneImplement());
+  if (!instance->init(model)) {
+    instance.reset();
+  }
+  return instance;
+}
+
+
 };  // namespace camera
 };  // namespace bevfusion

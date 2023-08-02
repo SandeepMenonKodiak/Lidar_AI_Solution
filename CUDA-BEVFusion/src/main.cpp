@@ -212,6 +212,7 @@ std::shared_ptr<bevfusion::Core> create_core_bbox(const std::string& model, cons
   param.geometry = geometry;
   param.transfusion = nv::format("model/%s/build/fuser.plan", model.c_str());
   param.transbbox = transbbox;
+  param.head_type = bevfusion::HEAD::TRANSBBOX;
   param.camera_vtransform = nv::format("model/%s/build/camera.vtransform.plan", model.c_str());
   return bevfusion::create_core(param);
 }
@@ -265,15 +266,8 @@ std::shared_ptr<bevfusion::Core> create_core_mapseg(const std::string& model, co
     geometry.num_camera = 6;
     geometry.geometry_dim = nvtype::Int3(360, 360, 80);
 
-    bevfusion::head::transbbox::TransBBoxParameter transbbox;
-    transbbox.out_size_factor = 8;
-    transbbox.pc_range = {-54.0f, -54.0f};
-    transbbox.post_center_range_start = {-61.2, -61.2, -10.0};
-    transbbox.post_center_range_end = {61.2, 61.2, 10.0};
-    transbbox.voxel_size = {0.075, 0.075};
-    transbbox.model = nv::format("model/%s/build/head.bbox.plan", model.c_str());
-    transbbox.confidence_threshold = 0.12f;
-    transbbox.sorted_bboxes = true;
+    bevfusion::head::mapsegm::MapSegHeadParameter mapsegm;
+    mapsegm.model = nv::format("model/%s/build/head.map.plan", model.c_str());
     
     bevfusion::CoreParameter param;
     param.camera_model = nv::format("model/%s/build/camera.backbone.plan", model.c_str());
@@ -281,9 +275,10 @@ std::shared_ptr<bevfusion::Core> create_core_mapseg(const std::string& model, co
     param.lidar_scn = scn;
     param.geometry = geometry;
     param.transfusion = nv::format("model/%s/build/fuser.plan", model.c_str());
-    param.transbbox = transbbox;
+    param.mapsegm = mapsegm;
+    param.head_type = bevfusion::HEAD::MAPSEGM;
     param.camera_vtransform = nv::format("model/%s/build/camera.vtransform.plan", model.c_str());
-
+    return bevfusion::create_core(param);
 }
 int main(int argc, char** argv) {
 
@@ -299,10 +294,12 @@ int main(int argc, char** argv) {
   printf("Model: %s\n", model);
   printf("Precision: %s\n", precision);
 
+  std::shared_ptr<bevfusion::Core> core;
+
   if(model != "segm")
-    auto core = create_core_bbox(model, precision);
+    core = create_core_bbox(model, precision);
   else
-    auto core = create_core_mapseg(model, precision);
+    core = create_core_mapseg(model, precision);
 
   if (core == nullptr) {
     printf("Core has been failed.\n");
@@ -313,7 +310,7 @@ int main(int argc, char** argv) {
   cudaStreamCreate(&stream);
  
   core->print();
-  core->set_timer(true);
+  core->set_timer(false);
 
   // Load matrix to host
   auto camera2lidar = nv::Tensor::load(nv::format("%s/camera2lidar.tensor", data), false);
@@ -329,16 +326,18 @@ int main(int argc, char** argv) {
   auto lidar_points = nv::Tensor::load(nv::format("%s/points.tensor", data), false);
   
   // warmup
-  auto bboxes =
-      core->forward((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
+  // auto bboxes =
+  //     core->forward((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
+
+  auto maps = core->forward_mapsegm((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
 
   // evaluate inference time
   for (int i = 0; i < 5; ++i) {
-    core->forward((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
+    core->forward_mapsegm((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
   }
 
   // visualize and save to jpg
-  visualize_bbox(bboxes, lidar_points, images, lidar2image, "build/cuda-bevfusion.jpg", stream);
+  // visualize_bbox(bboxes, lidar_points, images, lidar2image, "build/cuda-bevfusion.jpg", stream);
 
   // destroy memory
   free_images(images);

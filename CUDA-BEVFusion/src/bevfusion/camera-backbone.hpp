@@ -45,7 +45,18 @@ class Backbone {
   virtual void print() = 0;
 };
 
+class SegmBackbone {
+ public:
+  virtual void forward(const nvtype::half* images, void* stream = nullptr) = 0;
+
+  virtual nvtype::half* feature() = 0;
+  virtual std::vector<int> feature_shape() = 0;
+  virtual std::vector<int> camera_shape() = 0;
+  virtual void print() = 0;
+};
+
 std::shared_ptr<Backbone> create_backbone(const std::string& model);
+std::shared_ptr<SegmBackbone> create_segm_backbone(const std::string& model);
 
 };  // namespace camera
 };  // namespace bevfusion
