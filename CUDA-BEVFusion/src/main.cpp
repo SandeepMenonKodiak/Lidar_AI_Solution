@@ -37,6 +37,7 @@
 #include "common/tensor.hpp"
 #include "common/timer.hpp"
 #include "common/visualize.hpp"
+#include <dlfcn.h>
 
 static std::vector<unsigned char*> load_images(const std::string& root) {
   const char* file_names[] = {"0-FRONT.jpg", "1-FRONT_RIGHT.jpg", "2-FRONT_LEFT.jpg",
@@ -280,7 +281,22 @@ std::shared_ptr<bevfusion::Core> create_core_mapseg(const std::string& model, co
     param.camera_vtransform = nv::format("model/%s/build/camera.vtransform.plan", model.c_str());
     return bevfusion::create_core(param);
 }
+
+bool load_grid_sampler_plugin() {
+  void* handle = dlopen("/home/Lidar_AI_Solution/CUDA-BEVFusion/plugin_codes/GridsampleIPluginV2DynamicExt/gridSamplerPlugin.so", RTLD_LAZY);
+    if (!handle) {
+        // Handle error - the .so file cannot be loaded
+        printf("Cannot load library: %s\n", dlerror());
+        return false;
+    }
+    return true;
+}
 int main(int argc, char** argv) {
+
+  if(!load_grid_sampler_plugin()){
+    printf("Cannot load grid sampler plugin.\n");
+    return -1;
+  }
 
   const char* data      = "example-data";
   const char* model     = "resnet50int8";
@@ -296,11 +312,11 @@ int main(int argc, char** argv) {
 
   std::shared_ptr<bevfusion::Core> core;
 
-  if(model != "segm")
+  if (strcmp(model, "segm") != 0)
     core = create_core_bbox(model, precision);
-  else
+  else{
     core = create_core_mapseg(model, precision);
-
+  }
   if (core == nullptr) {
     printf("Core has been failed.\n");
     return -1;
@@ -326,15 +342,18 @@ int main(int argc, char** argv) {
   auto lidar_points = nv::Tensor::load(nv::format("%s/points.tensor", data), false);
   
   // warmup
-  // auto bboxes =
-  //     core->forward((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
-
-  auto maps = core->forward_mapsegm((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
-
-  // evaluate inference time
-  for (int i = 0; i < 5; ++i) {
-    core->forward_mapsegm((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
+  if (strcmp(model, "segm") != 0){
+  auto bboxes =
+      core->forward((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
   }
+  else{
+    auto maps = core->forward_mapsegm((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
+  }
+  printf("Warmup done.\n");
+  // evaluate inference time
+  // for (int i = 0; i < 5; ++i) {
+  //   core->forward_mapsegm((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
+  // }
 
   // visualize and save to jpg
   // visualize_bbox(bboxes, lidar_points, images, lidar2image, "build/cuda-bevfusion.jpg", stream);

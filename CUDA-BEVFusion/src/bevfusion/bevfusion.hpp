@@ -26,6 +26,7 @@
 
 #include "camera-backbone.hpp"
 #include "camera-bevpool.hpp"
+#include "lss-camera-bevpool.hpp"
 #include "camera-depth.hpp"
 #include "camera-geometry.hpp"
 #include "camera-normalization.hpp"

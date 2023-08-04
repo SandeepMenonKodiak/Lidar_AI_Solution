@@ -38,8 +38,8 @@ class CoreImplement : public Core {
   }
 
   bool init(const CoreParameter& param) {
-    printf("Create camera backbone.\n");
-    if (param.head_type == HEAD::TRANSBOX) {
+    if (param.head_type == HEAD::TRANSBBOX) {
+      printf("Create bbox camera backbone.\n");
       camera_backbone_ = camera::create_backbone(param.camera_model);
       if (camera_backbone_ == nullptr) {
         printf("Failed to create camera backbone.\n");
@@ -47,19 +47,30 @@ class CoreImplement : public Core {
       }
     }
     else if (param.head_type == HEAD::MAPSEGM) {
-      seg_camera_backbone = camera::create_segm_backbone(param.camera_model);
-      if (seg_camera_backbone == nullptr) {
+      printf("Create seg camera backbone.\n");
+      seg_camera_backbone_ = camera::create_segm_backbone(param.camera_model);
+      if (seg_camera_backbone_ == nullptr) {
         printf("Failed to create seg camera backbone.\n");
         return false;
       }
     }
     printf("Create camera bevpool.\n");
 
-    camera_bevpool_ =
-        camera::create_bevpool(camera_backbone_->camera_shape(), param.geometry.geometry_dim.x, param.geometry.geometry_dim.y);
-    if (camera_bevpool_ == nullptr) {
-      printf("Failed to create camera bevpool.\n");
-      return false;
+    if(param.head_type == HEAD::TRANSBBOX) {
+      camera_bevpool_ =
+          camera::create_bevpool(camera_backbone_->camera_shape(), param.geometry.geometry_dim.x, param.geometry.geometry_dim.y);
+      if (camera_bevpool_ == nullptr) {
+        printf("Failed to create camera bevpool.\n");
+        return false;
+      }
+    }
+    else if (param.head_type == HEAD::MAPSEGM) {
+      lss_camera_bevpool_ =
+          camera::create_lss_bevpool(seg_camera_backbone_->camera_shape(), param.geometry.geometry_dim.x, param.geometry.geometry_dim.y);
+      if (lss_camera_bevpool_ == nullptr) {
+        printf("Failed to create lss camera bevpool.\n");
+        return false;
+      }
     }
 
     printf("Create camera vtransform.\n");
@@ -127,6 +138,8 @@ class CoreImplement : public Core {
     checkRuntime(cudaMalloc(&lidar_points_device_, bytes_capacity_points_));
     checkRuntime(cudaMallocHost(&lidar_points_host_, bytes_capacity_points_));
     param_ = param;
+
+    printf("Init done.\n");
     return true;
   }
 
@@ -164,32 +177,42 @@ class CoreImplement : public Core {
 
   head::mapsegm::CanvasOutput forward_mapsegm_only(const void* camera_images, const nvtype::half* lidar_points,
                                                          int num_points, void* stream, bool do_normalization) {
+
     int cappoints = static_cast<int>(capacity_points_);
     if (num_points > cappoints) {
       printf("If it exceeds %d points, the default processing will simply crop it out.\n", cappoints);
     }
-
+    printf("forward_mapsegm_only with %d points\n", num_points);
     num_points = std::min(cappoints, num_points);
 
     cudaStream_t _stream = static_cast<cudaStream_t>(stream);
     size_t bytes_points = num_points * param_.lidar_scn.voxelization.num_feature * sizeof(nvtype::half);
     checkRuntime(cudaMemcpyAsync(lidar_points_host_, lidar_points, bytes_points, cudaMemcpyHostToHost, _stream));
     checkRuntime(cudaMemcpyAsync(lidar_points_device_, lidar_points_host_, bytes_points, cudaMemcpyHostToDevice, _stream));
+    printf("cudaMemcpyAsync done\n");
 
     const nvtype::half* lidar_feature = this->lidar_scn_->forward(lidar_points_device_, num_points, stream);
+    printf("lidar_scn_ done\n");
     nvtype::half* normed_images = (nvtype::half*)camera_images;
     if (do_normalization) {
       normed_images = (nvtype::half*)this->normalizer_->forward((const unsigned char**)(camera_images), stream);
     }
-    const nvtype::half* depth = this->camera_depth_->forward(lidar_points_device_, num_points, 5, stream);
+    printf("normalizer_ done\n");
 
-    this->seg_camera_backbone->forward(normed_images, stream);
-    const nvtype::half* camera_bev = this->camera_bevpool_->forward(
-        this->camera_backbone_->feature(), this->camera_backbone_->depth(), this->camera_geometry_->indices(),
+    this->seg_camera_backbone_->forward(normed_images, stream);
+    printf("seg_camera_backbone_ done\n");
+    const nvtype::half* camera_bev = this->lss_camera_bevpool_->forward(
+        this->seg_camera_backbone_->feature(), this->camera_geometry_->indices(),
         this->camera_geometry_->intervals(), this->camera_geometry_->num_intervals(), stream);
+    printf("lss_camera_bevpool_ done\n");
 
     const nvtype::half* camera_bevfeat = camera_vtransform_->forward(camera_bev, stream);
+    printf("camera_vtransform_ done \n");
+    printf("camera_bevfeat: %p\n", camera_bevfeat);
+
     const nvtype::half* fusion_feature = this->transfusion_->forward(camera_bevfeat, lidar_feature, stream);
+    printf("transfusion_ done\n");
+
     return this->mapsegm_->forward(fusion_feature, stream);
   }
 
@@ -287,16 +310,12 @@ class CoreImplement : public Core {
       times.emplace_back(timer_.stop("Lidar Backbone"));
 
       timer_.start(_stream);
-      const nvtype::half* depth = this->camera_depth_->forward(lidar_points_device_, num_points, 5, stream);
-      times.emplace_back(timer_.stop("Camera Depth"));
+      this->seg_camera_backbone_->forward(normed_images, stream);
+      times.emplace_back(timer_.stop("Seg Camera Backbone"));
 
       timer_.start(_stream);
-      this->camera_backbone_->forward(normed_images, depth, stream);
-      times.emplace_back(timer_.stop("Camera Backbone"));
-
-      timer_.start(_stream);
-      const nvtype::half* camera_bev = this->camera_bevpool_->forward(
-          this->camera_backbone_->feature(), this->camera_backbone_->depth(), this->camera_geometry_->indices(),
+      const nvtype::half* camera_bev = this->lss_camera_bevpool_->forward(
+          this->seg_camera_backbone_->feature(), this->camera_geometry_->indices(),
           this->camera_geometry_->intervals(), this->camera_geometry_->num_intervals(), stream);
       times.emplace_back(timer_.stop("Camera Bevpool"));
 
@@ -350,10 +369,24 @@ class CoreImplement : public Core {
   virtual void set_timer(bool enable) override { enable_timer_ = enable; }
 
   virtual void print() override {
-    camera_backbone_->print();
-    camera_vtransform_->print();
-    transfusion_->print();
-    transbbox_->print();
+    if (camera_backbone_) {
+      camera_backbone_->print();
+    }
+    if (seg_camera_backbone_) {
+      seg_camera_backbone_->print();
+    }
+    if (camera_vtransform_) {
+      camera_vtransform_->print();
+    }
+    if (transfusion_) {
+      transfusion_->print();
+    }
+    if (transbbox_) {
+      transbbox_->print();
+    }
+    if (mapsegm_) {
+      mapsegm_->print();
+    }
   }
 
   virtual void update(const float* camera2lidar, const float* camera_intrinsics, const float* lidar2image,
@@ -376,6 +409,7 @@ class CoreImplement : public Core {
   std::shared_ptr<camera::Backbone> camera_backbone_;
   std::shared_ptr<camera::SegmBackbone> seg_camera_backbone_;
   std::shared_ptr<camera::BEVPool> camera_bevpool_;
+  std::shared_ptr<camera::LSSBEVPool> lss_camera_bevpool_;
   std::shared_ptr<camera::VTransform> camera_vtransform_;
   std::shared_ptr<camera::Depth> camera_depth_;
   std::shared_ptr<camera::Geometry> camera_geometry_;
