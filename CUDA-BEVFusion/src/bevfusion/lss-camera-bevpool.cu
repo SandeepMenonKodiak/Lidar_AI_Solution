@@ -114,7 +114,7 @@ class LSSBEVPoolImplement : public LSSBEVPool {
     int thread_x = C / tile_size;
     int thread_y = 1024 / thread_x;
     printf("thread_x: %d, thread_y: %d\n", thread_x, thread_y);
-    printf("num_intervals: %d\n", num_intervals)
+    printf("num_intervals: %d\n", num_intervals);
     printf("area: %d\n", W * H);
     
     dim3 threads(thread_x, thread_y);
