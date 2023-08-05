@@ -65,9 +65,9 @@ class CoreImplement : public Core {
       }
     }
     else if (param.head_type == HEAD::MAPSEGM) {
-      lss_camera_bevpool_ =
-          camera::create_lss_bevpool(seg_camera_backbone_->camera_shape(), param.geometry.geometry_dim.x, param.geometry.geometry_dim.y);
-      if (lss_camera_bevpool_ == nullptr) {
+      camera_bevpool_ =
+          camera::create_bevpool(seg_camera_backbone_->camera_shape(), param.geometry.geometry_dim.x, param.geometry.geometry_dim.y);
+      if (camera_bevpool_ == nullptr) {
         printf("Failed to create lss camera bevpool.\n");
         return false;
       }
@@ -182,14 +182,12 @@ class CoreImplement : public Core {
     if (num_points > cappoints) {
       printf("If it exceeds %d points, the default processing will simply crop it out.\n", cappoints);
     }
-    printf("forward_mapsegm_only with %d points\n", num_points);
     num_points = std::min(cappoints, num_points);
 
     cudaStream_t _stream = static_cast<cudaStream_t>(stream);
     size_t bytes_points = num_points * param_.lidar_scn.voxelization.num_feature * sizeof(nvtype::half);
     checkRuntime(cudaMemcpyAsync(lidar_points_host_, lidar_points, bytes_points, cudaMemcpyHostToHost, _stream));
     checkRuntime(cudaMemcpyAsync(lidar_points_device_, lidar_points_host_, bytes_points, cudaMemcpyHostToDevice, _stream));
-    printf("cudaMemcpyAsync done\n");
 
     const nvtype::half* lidar_feature = this->lidar_scn_->forward(lidar_points_device_, num_points, stream);
     printf("lidar_scn_ done\n");
@@ -200,11 +198,10 @@ class CoreImplement : public Core {
     printf("normalizer_ done\n");
 
     this->seg_camera_backbone_->forward(normed_images, stream);
-    printf("seg_camera_backbone_ done\n");
-    const nvtype::half* camera_bev = this->lss_camera_bevpool_->forward(
-        this->seg_camera_backbone_->feature(), this->camera_geometry_->indices(),
+    const nvtype::half* camera_bev = this->camera_bevpool_->forward(
+        this->seg_camera_backbone_->feature(), this->seg_camera_backbone_->depth(), this->camera_geometry_->indices(),
         this->camera_geometry_->intervals(), this->camera_geometry_->num_intervals(), stream);
-    printf("lss_camera_bevpool_ done\n");
+    printf("camera_bevpool_ done\n");
 
     const nvtype::half* camera_bevfeat = camera_vtransform_->forward(camera_bev, stream);
     printf("camera_vtransform_ done \n");
@@ -314,9 +311,9 @@ class CoreImplement : public Core {
       times.emplace_back(timer_.stop("Seg Camera Backbone"));
 
       timer_.start(_stream);
-      const nvtype::half* camera_bev = this->lss_camera_bevpool_->forward(
-          this->seg_camera_backbone_->feature(), this->camera_geometry_->indices(),
-          this->camera_geometry_->intervals(), this->camera_geometry_->num_intervals(), stream);
+    const nvtype::half* camera_bev = this->camera_bevpool_->forward(
+        this->seg_camera_backbone_->feature(), this->seg_camera_backbone_->depth(), this->camera_geometry_->indices(),
+        this->camera_geometry_->intervals(), this->camera_geometry_->num_intervals(), stream);
       times.emplace_back(timer_.stop("Camera Bevpool"));
 
       timer_.start(_stream);

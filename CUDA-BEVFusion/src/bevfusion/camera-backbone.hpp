@@ -50,6 +50,7 @@ class SegmBackbone {
   virtual void forward(const nvtype::half* images, void* stream = nullptr) = 0;
 
   virtual nvtype::half* feature() = 0;
+  virtual nvtype::half* depth() = 0;
   virtual std::vector<int> feature_shape() = 0;
   virtual std::vector<int> camera_shape() = 0;
   virtual void print() = 0;

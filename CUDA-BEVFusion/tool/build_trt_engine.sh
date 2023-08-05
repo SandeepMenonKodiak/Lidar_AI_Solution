@@ -109,7 +109,7 @@ function compile_trt_model(){
 
 # maybe int8 / fp16
 if [ "$DEBUG_MODEL" = "segm" ]; then
-    compile_trt_model "camera.backbone" "$trtexec_dynamic_flags" 1 1
+    compile_trt_model "camera.backbone" "$trtexec_dynamic_flags" 1 2
 else
     compile_trt_model "camera.backbone" "$trtexec_dynamic_flags" 2 2
 fi
