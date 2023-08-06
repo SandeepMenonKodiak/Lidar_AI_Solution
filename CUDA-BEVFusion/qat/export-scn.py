@@ -27,6 +27,7 @@ from mmcv import Config
 from mmdet3d.models import build_model
 from mmdet3d.utils import recursive_eval
 from mmcv.runner import wrap_fp16_model, load_checkpoint
+from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
 
 import torch
 import argparse
@@ -65,8 +66,11 @@ if __name__ == "__main__":
     cfg = Config(recursive_eval(configs), filename=args.config)
 
     model = load_model(cfg, checkpoint_path = args.ckpt)
-
-    # model = torch.load(args.ckpt).module
+    model = MMDataParallel(model, device_ids=[0])
+    model.eval()
+    model.module.encoders.lidar.backbone = funcs.fuse_relu_only(model.module.encoders.lidar.backbone)
+    
+    model = model.module
     model.eval().cuda().half()
     model = model.encoders.lidar.backbone
 
