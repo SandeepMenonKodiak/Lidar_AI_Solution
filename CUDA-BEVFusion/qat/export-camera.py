@@ -38,7 +38,7 @@ from mmdet3d.utils import recursive_eval
 
 from torch import nn
 from pytorch_quantization.nn.modules.tensor_quantizer import TensorQuantizer
-from mmcv.runner import  load_checkpoint
+from mmcv.runner import load_checkpoint
 
 import lean.quantize as quantize
 

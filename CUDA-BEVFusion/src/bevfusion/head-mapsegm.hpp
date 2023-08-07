@@ -21,7 +21,7 @@ struct MapSegHeadParameter {
   
 };
 
-using CanvasOutput = std::vector<std::vector<float>>;
+using CanvasOutput = std::vector<std::vector<std::vector<std::vector<float>>>>;
 
 class MapSegHead {
  public:

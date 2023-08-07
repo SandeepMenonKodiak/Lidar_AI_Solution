@@ -119,7 +119,7 @@ compile_trt_model "fuser" "$trtexec_dynamic_flags" 2 1
 # fp16 only
 compile_trt_model "camera.vtransform" "$trtexec_fp16_flags" 1 1
 if [ "$DEBUG_MODEL" = "segm" ]; then
-    compile_trt_model "head.map" "$trtexec_fp16_flags" 1 1
+    compile_trt_model "head_sig.map" "$trtexec_fp16_flags" 1 1
 else
     compile_trt_model "head.bbox" "$trtexec_fp16_flags" 1 6
 fi

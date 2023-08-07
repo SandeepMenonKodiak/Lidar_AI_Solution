@@ -34,7 +34,7 @@ class MapSegHeadImplement : public MapSegHead {
     create_binding_memory();
     std::cout << "Binding shape is: " << bindshape_[0][0] << " " << bindshape_[0][1] << " " << bindshape_[0][2] << " "
               << bindshape_[0][3] << std::endl;
-    checkRuntime(cudaMallocHost(&output_host_map_, bindshape_[0][2] * bindshape_[0][3] * sizeof(float)));
+    checkRuntime(cudaMallocHost(&output_host_map_, bindshape_[0][0] * bindshape_[0][1] * bindshape_[0][2] * bindshape_[0][3] * sizeof(float)));
     return true;
   }
 
@@ -64,18 +64,28 @@ class MapSegHeadImplement : public MapSegHead {
     engine_->forward({/* input  */ transfusion_feature,
                       /* output */ bindings_[0]}, _stream);
 
-    checkRuntime(cudaMemcpyAsync(output_host_map_, bindings_[0], bindshape_[0][2] * bindshape_[0][3] * sizeof(half),
-                                 cudaMemcpyDeviceToHost, _stream));
-    checkRuntime(cudaStreamSynchronize(_stream));
+    checkRuntime(cudaMemcpyAsync(output_host_map_, bindings_[0], bindshape_[0][0] * bindshape_[0][1] * bindshape_[0][2] * bindshape_[0][3] * sizeof(half), cudaMemcpyDeviceToHost, _stream));
+    checkRuntime(cudaStreamSynchronize(_stream)); // wait for device to finish the copy
 
     CanvasOutput output;
-    // Here we assume the model output is a 2D map of floats, you'll need to adjust the conversion according to the actual model output format
-    for (int i = 0; i < bindshape_[0][2]; i++) {
-      std::vector<float> row(bindshape_[0][3]);
-      for (int j = 0; j < bindshape_[0][3]; j++) {
-        row[j] = output_host_map_[i * bindshape_[0][3] + j];
-      }
-      output.push_back(row);
+    int width = bindshape_[0][3];
+    int height = bindshape_[0][2];
+    int channels = bindshape_[0][1];
+    int batch_size = bindshape_[0][0];
+    output.resize(batch_size);
+    printf("width is: %d, height is: %d, channels is: %d, batch_size is: %d\n", width, height, channels, batch_size);
+    for (int b = 0; b < batch_size; b++) {
+        output[b].resize(channels);
+        for (int c = 0; c < channels; c++) {
+            output[b][c].resize(height);
+            for (int h = 0; h < height; h++) {
+                output[b][c][h].resize(width);
+                for (int w = 0; w < width; w++) {
+                    int idx = b * (channels * height * width) + c * (height * width) + h * width + w;
+                    output[b][c][h][w] = output_host_map_[idx];
+                }
+            }
+        }
     }
 
     return output;

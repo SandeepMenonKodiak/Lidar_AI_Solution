@@ -136,7 +136,9 @@ class CoreImplement : public Core {
     capacity_points_ = 300000;
     bytes_capacity_points_ = capacity_points_ * param.lidar_scn.voxelization.num_feature * sizeof(nvtype::half);
     checkRuntime(cudaMalloc(&lidar_points_device_, bytes_capacity_points_));
-    checkRuntime(cudaMallocHost(&lidar_points_host_, bytes_capacity_points_));
+    checkRuntime(cudaMallocHost(&lidar_points_host_, bytes_capacity_points_));  // Pinned buffer. Accessible from GPU.
+    // Pinned buffer memory will not be swapped by the OS. Pages cannot be swapped and it is persistent.
+
     param_ = param;
 
     printf("Init done.\n");
@@ -188,6 +190,8 @@ class CoreImplement : public Core {
     size_t bytes_points = num_points * param_.lidar_scn.voxelization.num_feature * sizeof(nvtype::half);
     checkRuntime(cudaMemcpyAsync(lidar_points_host_, lidar_points, bytes_points, cudaMemcpyHostToHost, _stream));
     checkRuntime(cudaMemcpyAsync(lidar_points_device_, lidar_points_host_, bytes_points, cudaMemcpyHostToDevice, _stream));
+    // stream is the channel to submit the work to gpu. operations are ordered.
+    // Names streams.
 
     const nvtype::half* lidar_feature = this->lidar_scn_->forward(lidar_points_device_, num_points, stream);
     printf("lidar_scn_ done\n");
