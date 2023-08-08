@@ -13,3 +13,5 @@ src/test
 *.zip
 *.o
 *.so
+.vscode/
+plugin_codes/*.txt

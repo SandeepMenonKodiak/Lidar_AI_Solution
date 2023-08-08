@@ -363,7 +363,6 @@ int32_t GridsampleIPluginV2DynamicExt::enqueue(PluginTensorDesc const *inputDesc
     std::cout << "mPaddingMode: " << to_string(mPaddingMode) << std::endl;
     std::cout << "mAlignCorners: " << mAlignCorners << std::endl;
     std::cout << "dataType: " << to_string(dataType) << std::endl;
-    std::cout << "stream: " << stream << std::endl;
 
 
     status = grid_sampler_2d_cuda(mBatch, inputs[0], inputs[1], outputs[0],
