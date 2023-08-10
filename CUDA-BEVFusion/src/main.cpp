@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include <vector>
+#include <map>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -37,6 +38,84 @@
 #include "common/tensor.hpp"
 #include "common/timer.hpp"
 #include "common/visualize.hpp"
+#include <dlfcn.h>
+
+
+using Color = std::tuple<unsigned char, unsigned char, unsigned char>;
+
+// Define the MAP_PALETTE
+std::map<std::string, Color> MAP_PALETTE = {
+    {"drivable_area", {166, 206, 227}},
+    {"road_segment", {31, 120, 180}},
+    {"road_block", {178, 223, 138}},
+    {"lane", {51, 160, 44}},
+    {"ped_crossing", {251, 154, 153}},
+    {"walkway", {227, 26, 28}},
+    {"stop_line", {253, 191, 111}},
+    {"carpark_area", {255, 127, 0}},
+    {"road_divider", {202, 178, 214}},
+    {"lane_divider", {106, 61, 154}},
+    {"divider", {106, 61, 154}}
+};
+
+std::vector<std::string> map_classes = {
+    "drivable_area",
+    "ped_crossing",
+    "walkway",
+    "stop_line",
+    "carpark_area",
+    "divider"
+};
+
+void visualize_map(const std::string& fpath, const bevfusion::head::mapsegm::CanvasOutput& masks, const std::vector<std::string>& classes) {
+    int batch = masks.size();
+    if (batch == 0) return;  // no masks to visualize
+
+    int channels = masks[0].size();
+    if (channels == 0) return;
+
+    int height = masks[0][0].size();
+    if (height == 0) return;
+
+    int width = masks[0][0][0].size();
+    if (width == 0) return;
+    printf("width is: %d, height is: %d, channels is: %d, batch_size is: %d\n", width, height, channels, batch);
+    
+    // Create an empty image with 3 channels (RGB)
+    std::vector<unsigned char> image(height * width * 3, 240);  // assuming the default background is (240,240,240)
+    std::map<int, int> frequency; // Key: number, Value: count
+
+    // Here, let's assume that you're only interested in visualizing the first batch of masks.
+    for (int k = 0; k < classes.size() && k < channels; ++k) {
+        const std::string& name = classes[k];
+        if (MAP_PALETTE.find(name) != MAP_PALETTE.end()) {
+            Color color = MAP_PALETTE[name];
+            for (int i = 0; i < height; ++i) {
+                for (int j = 0; j < width; ++j) {
+                  frequency[masks[0][k][i][j]]++;
+                    if (masks[0][k][i][j] >= 0.5) {  // Assuming a threshold of 0.5 for visualization
+                        int index = (i * width + j) * 3;
+                        printf("color: %d %d %d\n", std::get<0>(color), std::get<1>(color), std::get<2>(color));
+                        image[index] = std::get<0>(color);
+                        image[index + 1] = std::get<1>(color);
+                        image[index + 2] = std::get<2>(color);
+                    }
+                    else{
+                        // printf("color: %d %d %d\n", std::get<0>(color), std::get<1>(color), std::get<2>(color));
+                    }
+                }
+            }
+        }
+    }
+    
+        // Print frequencies
+    for (const auto& pair : frequency) {
+        printf("Number: %d, Count: %d\n", pair.first, pair.second);
+    }
+
+    stbi_write_jpg(fpath.c_str(), width, height, 3, &image[0], 100);
+}
+
 
 static std::vector<unsigned char*> load_images(const std::string& root) {
   const char* file_names[] = {"0-FRONT.jpg", "1-FRONT_RIGHT.jpg", "2-FRONT_LEFT.jpg",
@@ -212,6 +291,7 @@ std::shared_ptr<bevfusion::Core> create_core_bbox(const std::string& model, cons
   param.geometry = geometry;
   param.transfusion = nv::format("model/%s/build/fuser.plan", model.c_str());
   param.transbbox = transbbox;
+  param.head_type = bevfusion::HEAD::TRANSBBOX;
   param.camera_vtransform = nv::format("model/%s/build/camera.vtransform.plan", model.c_str());
   return bevfusion::create_core(param);
 }
@@ -265,8 +345,36 @@ std::shared_ptr<bevfusion::Core> create_core_mapseg(const std::string& model, co
     geometry.num_camera = 6;
     geometry.geometry_dim = nvtype::Int3(360, 360, 80);
 
+    bevfusion::head::mapsegm::MapSegHeadParameter mapsegm;
+    mapsegm.model = nv::format("model/%s/build/head_sig.map.plan", model.c_str());
+    
+    bevfusion::CoreParameter param;
+    param.camera_model = nv::format("model/%s/build/camera.backbone.plan", model.c_str());
+    param.normalize = normalization;
+    param.lidar_scn = scn;
+    param.geometry = geometry;
+    param.transfusion = nv::format("model/%s/build/fuser.plan", model.c_str());
+    param.mapsegm = mapsegm;
+    param.head_type = bevfusion::HEAD::MAPSEGM;
+    param.camera_vtransform = nv::format("model/%s/build/camera.vtransform.plan", model.c_str());
+    return bevfusion::create_core(param);
+}
+
+bool load_grid_sampler_plugin() {
+  void* handle = dlopen("/home/Lidar_AI_Solution/CUDA-BEVFusion/plugin_codes/GridsampleIPluginV2DynamicExt/gridSamplerPlugin.so", RTLD_LAZY);
+    if (!handle) {
+        // Handle error - the .so file cannot be loaded
+        printf("Cannot load library: %s\n", dlerror());
+        return false;
+    }
+    return true;
 }
 int main(int argc, char** argv) {
+
+  if(!load_grid_sampler_plugin()){
+    printf("Cannot load grid sampler plugin.\n");
+    return -1;
+  }
 
   const char* data      = "example-data";
   const char* model     = "resnet50int8";
@@ -276,7 +384,17 @@ int main(int argc, char** argv) {
   if (argc > 2) model     = argv[2];
   if (argc > 3) precision = argv[3];
 
-  auto core = create_core_bbox(model, precision);
+  printf("Data: %s\n", data);
+  printf("Model: %s\n", model);
+  printf("Precision: %s\n", precision);
+
+  std::shared_ptr<bevfusion::Core> core;
+
+  if (strcmp(model, "segm") != 0)
+    core = create_core_bbox(model, precision);
+  else{
+    core = create_core_mapseg(model, precision);
+  }
   if (core == nullptr) {
     printf("Core has been failed.\n");
     return -1;
@@ -286,7 +404,7 @@ int main(int argc, char** argv) {
   cudaStreamCreate(&stream);
  
   core->print();
-  core->set_timer(true);
+  core->set_timer(false);
 
   // Load matrix to host
   auto camera2lidar = nv::Tensor::load(nv::format("%s/camera2lidar.tensor", data), false);
@@ -302,16 +420,22 @@ int main(int argc, char** argv) {
   auto lidar_points = nv::Tensor::load(nv::format("%s/points.tensor", data), false);
   
   // warmup
+  if (strcmp(model, "segm") != 0){
   auto bboxes =
       core->forward((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
-
-  // evaluate inference time
-  for (int i = 0; i < 5; ++i) {
-    core->forward((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
   }
+  else{
+    auto maps = core->forward_mapsegm((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
+    visualize_map("build/cuda-mapsegm.jpg", maps, map_classes);
+  }
+  printf("Warmup done.\n");
+  // evaluate inference time
+  // for (int i = 0; i < 5; ++i) {
+  //   core->forward_mapsegm((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
+  // }
 
   // visualize and save to jpg
-  visualize_bbox(bboxes, lidar_points, images, lidar2image, "build/cuda-bevfusion.jpg", stream);
+  // visualize_bbox(bboxes, lidar_points, images, lidar2image, "build/cuda-bevfusion.jpg", stream);
 
   // destroy memory
   free_images(images);

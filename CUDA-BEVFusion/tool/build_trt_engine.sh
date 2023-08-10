@@ -94,7 +94,7 @@ function compile_trt_model(){
     cmd="--onnx=$base/$name.onnx ${precision_flags} ${input_flags} ${output_flags} \
         --saveEngine=${result_save_directory}/$name.plan \
         --memPoolSize=workspace:2048 --verbose --dumpLayerInfo \
-        --dumpProfile --separateProfileRun \
+        --dumpProfile --separateProfileRun --plugins=/home/Lidar_AI_Solution/CUDA-BEVFusion/plugin_codes/GridsampleIPluginV2DynamicExt/gridSamplerPlugin.so \
         --profilingVerbosity=detailed --exportLayerInfo=${result_save_directory}/$name.json"
 
     mkdir -p $result_save_directory
@@ -108,9 +108,18 @@ function compile_trt_model(){
 }
 
 # maybe int8 / fp16
-compile_trt_model "camera.backbone" "$trtexec_dynamic_flags" 2 2
+if [ "$DEBUG_MODEL" = "segm" ]; then
+    compile_trt_model "camera.backbone" "$trtexec_dynamic_flags" 1 2
+else
+    compile_trt_model "camera.backbone" "$trtexec_dynamic_flags" 2 2
+fi
+
 compile_trt_model "fuser" "$trtexec_dynamic_flags" 2 1
 
 # fp16 only
 compile_trt_model "camera.vtransform" "$trtexec_fp16_flags" 1 1
-compile_trt_model "head.bbox" "$trtexec_fp16_flags" 1 6
+if [ "$DEBUG_MODEL" = "segm" ]; then
+    compile_trt_model "head_sig.map" "$trtexec_fp16_flags" 1 1
+else
+    compile_trt_model "head.bbox" "$trtexec_fp16_flags" 1 6
+fi

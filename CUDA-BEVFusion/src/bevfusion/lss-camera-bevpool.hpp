@@ -21,8 +21,8 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef __CAMERA_BACKBONE_HPP__
-#define __CAMERA_BACKBONE_HPP__
+#ifndef __CAMERA_LSS_BEVPOOL_HPP__
+#define __CAMERA_LSS_BEVPOOL_HPP__
 
 #include <memory>
 #include <string>
@@ -33,33 +33,16 @@
 namespace bevfusion {
 namespace camera {
 
-class Backbone {
+class LSSBEVPool {
  public:
-  virtual void forward(const nvtype::half* images, const nvtype::half* depth, void* stream = nullptr) = 0;
-
-  virtual nvtype::half* depth() = 0;
-  virtual nvtype::half* feature() = 0;
-  virtual std::vector<int> depth_shape() = 0;
-  virtual std::vector<int> feature_shape() = 0;
-  virtual std::vector<int> camera_shape() = 0;
-  virtual void print() = 0;
+  virtual nvtype::half* forward(const nvtype::half* camera_feature, const unsigned int* indices, const nvtype::Int3* intervals, 
+                                  unsigned int num_intervals, void* stream = nullptr) = 0;
+  virtual std::vector<int> shape() = 0;
 };
 
-class SegmBackbone {
- public:
-  virtual void forward(const nvtype::half* images, void* stream = nullptr) = 0;
-
-  virtual nvtype::half* feature() = 0;
-  virtual nvtype::half* depth() = 0;
-  virtual std::vector<int> feature_shape() = 0;
-  virtual std::vector<int> camera_shape() = 0;
-  virtual void print() = 0;
-};
-
-std::shared_ptr<Backbone> create_backbone(const std::string& model);
-std::shared_ptr<SegmBackbone> create_segm_backbone(const std::string& model);
+std::shared_ptr<LSSBEVPool> create_lss_bevpool(const std::vector<int>& camera_shape, unsigned int bev_width, unsigned int bev_height);
 
 };  // namespace camera
 };  // namespace bevfusion
 
-#endif  // __CAMERA_BACKBONE_HPP__
+#endif  // __CAMERA_LSS_BEVPOOL_HPP__

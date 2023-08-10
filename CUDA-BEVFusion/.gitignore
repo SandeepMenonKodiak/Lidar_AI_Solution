@@ -13,3 +13,7 @@ src/test
 *.zip
 *.pth
 *.onnx
+*.o
+*.so
+.vscode/
+plugin_codes/*.txt
