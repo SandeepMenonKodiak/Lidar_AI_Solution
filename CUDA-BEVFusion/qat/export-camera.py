@@ -144,7 +144,7 @@ def main():
 
     downsample_model = model.encoders.camera.vtransform.downsample
     downsample_model.cuda().eval()
-    downsample_in = torch.zeros(1, 80, 360, 360).cuda()
+    downsample_in = torch.zeros(1, 80, 256, 256).cuda()
 
     save_root = f"qat/onnx_{suffix}"
     os.makedirs(save_root, exist_ok=True)
