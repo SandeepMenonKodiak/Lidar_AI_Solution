@@ -83,8 +83,9 @@ void visualize_map(const std::string& fpath, const bevfusion::head::mapsegm::Can
     
     // Create an empty image with 3 channels (RGB)
     std::vector<unsigned char> image(height * width * 3, 240);  // assuming the default background is (240,240,240)
-    std::map<int, int> frequency; // Key: number, Value: count
-
+    std::map<float, int> frequency; // Key: number, Value: count
+    float max_value = 0;
+    float min_value = 1;
     // Here, let's assume that you're only interested in visualizing the first batch of masks.
     for (int k = 0; k < classes.size() && k < channels; ++k) {
         const std::string& name = classes[k];
@@ -93,9 +94,11 @@ void visualize_map(const std::string& fpath, const bevfusion::head::mapsegm::Can
             for (int i = 0; i < height; ++i) {
                 for (int j = 0; j < width; ++j) {
                   frequency[masks[0][k][i][j]]++;
+                    max_value = std::max(max_value, masks[0][k][i][j]);
+                    min_value = std::min(min_value, masks[0][k][i][j]);
                     if (masks[0][k][i][j] >= 0.5) {  // Assuming a threshold of 0.5 for visualization
                         int index = (i * width + j) * 3;
-                        printf("color: %d %d %d\n", std::get<0>(color), std::get<1>(color), std::get<2>(color));
+                        // printf("color: %d %d %d\n", std::get<0>(color), std::get<1>(color), std::get<2>(color));
                         image[index] = std::get<0>(color);
                         image[index + 1] = std::get<1>(color);
                         image[index + 2] = std::get<2>(color);
@@ -108,10 +111,11 @@ void visualize_map(const std::string& fpath, const bevfusion::head::mapsegm::Can
         }
     }
     
-        // Print frequencies
-    for (const auto& pair : frequency) {
-        printf("Number: %d, Count: %d\n", pair.first, pair.second);
-    }
+    printf("max_value is: %f, min_value is: %f\n", max_value, min_value);
+    // Print frequencies
+    // for (const auto& pair : frequency) {
+    //     printf("Number: %f, Count: %d\n", pair.first, pair.second);
+    // }
 
     stbi_write_jpg(fpath.c_str(), width, height, 3, &image[0], 100);
 }
@@ -360,6 +364,41 @@ std::shared_ptr<bevfusion::Core> create_core_mapseg(const std::string& model, co
     return bevfusion::create_core(param);
 }
 
+std::shared_ptr<bevfusion::Core> create_core_lidarmapseg(const std::string& model, const std::string& precision) {
+  printf("[create_core_lidarmapseg] Create by %s, %s\n", model.c_str(), precision.c_str());
+  
+    bevfusion::lidar::VoxelizationParameter voxelization;
+    voxelization.min_range = nvtype::Float3(-54.0f, -54.0f, -5.0);
+    voxelization.max_range = nvtype::Float3(+54.0f, +54.0f, +3.0);
+    voxelization.voxel_size = nvtype::Float3(0.075f, 0.075f, 0.2f);
+    voxelization.grid_size =
+        voxelization.compute_grid_size(voxelization.max_range, voxelization.min_range, voxelization.voxel_size);
+    voxelization.max_points_per_voxel = 10;
+    voxelization.max_points = 300000;
+    voxelization.max_voxels = 160000;
+    voxelization.num_feature = 5;
+
+    bevfusion::lidar::SCNParameter scn;
+    scn.voxelization = voxelization;
+    scn.model = nv::format("model/%s/lidar.backbone.xyz.onnx", model.c_str());
+    scn.order = bevfusion::lidar::CoordinateOrder::XYZ;
+
+    if (precision == "int8") {
+      scn.precision = bevfusion::lidar::Precision::Int8;
+    } else {
+      scn.precision = bevfusion::lidar::Precision::Float16;
+    }
+    bevfusion::head::mapsegm::MapSegHeadParameter mapsegm;
+    mapsegm.model = nv::format("model/%s/build/head_sig.map.plan", model.c_str());
+    
+    bevfusion::CoreParameter param;
+    param.lidar_scn = scn;
+    param.lidardecoder = nv::format("model/%s/build/lidar_decoder.plan", model.c_str());
+    param.mapsegm = mapsegm;
+    param.head_type = bevfusion::HEAD::MAPSEGM;
+    return bevfusion::create_core(param);
+}
+
 bool load_grid_sampler_plugin() {
   void* handle = dlopen("/home/Lidar_AI_Solution/CUDA-BEVFusion/plugin_codes/GridsampleIPluginV2DynamicExt/gridSamplerPlugin.so", RTLD_LAZY);
     if (!handle) {
@@ -390,11 +429,13 @@ int main(int argc, char** argv) {
 
   std::shared_ptr<bevfusion::Core> core;
 
-  if (strcmp(model, "segm") != 0)
-    core = create_core_bbox(model, precision);
-  else{
+  if (strcmp(model, "mapsegm") == 0)
     core = create_core_mapseg(model, precision);
-  }
+  else if (strcmp(model, "lidarmapsegm") == 0)
+    core = create_core_lidarmapseg(model, precision);
+  else
+    core = create_core_bbox(model, precision);
+  
   if (core == nullptr) {
     printf("Core has been failed.\n");
     return -1;
@@ -420,22 +461,24 @@ int main(int argc, char** argv) {
   auto lidar_points = nv::Tensor::load(nv::format("%s/points.tensor", data), false);
   
   // warmup
-  if (strcmp(model, "segm") != 0){
-  auto bboxes =
-      core->forward((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
-  }
-  else{
+  if (strcmp(model, "mapsegm") == 0){
     auto maps = core->forward_mapsegm((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
     visualize_map("build/cuda-mapsegm.jpg", maps, map_classes);
+  }
+  else if (strcmp(model, "lidarmapsegm") == 0){
+    auto maps = core->forward_lidarmapsegm(lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
+    visualize_map("build/cuda-lidarmapsegm.jpg", maps, map_classes);
+  }
+  else{
+    auto bboxes =
+      core->forward((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
+      visualize_bbox(bboxes, lidar_points, images, lidar2image, "build/cuda-bevfusion.jpg", stream);
   }
   printf("Warmup done.\n");
   // evaluate inference time
   // for (int i = 0; i < 5; ++i) {
   //   core->forward_mapsegm((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
   // }
-
-  // visualize and save to jpg
-  // visualize_bbox(bboxes, lidar_points, images, lidar2image, "build/cuda-bevfusion.jpg", stream);
 
   // destroy memory
   free_images(images);

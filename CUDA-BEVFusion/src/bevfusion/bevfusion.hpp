@@ -35,6 +35,7 @@
 #include "head-mapsegm.hpp"
 #include "lidar-scn.hpp"
 #include "transfusion.hpp"
+#include "lidar-decoder.hpp"
 
 namespace bevfusion {
 
@@ -51,6 +52,7 @@ struct CoreParameter {
   camera::NormalizationParameter normalize;
   lidar::SCNParameter lidar_scn;
   std::string transfusion;
+  std::string lidardecoder;
   head::transbbox::TransBBoxParameter transbbox;
   head::mapsegm::MapSegHeadParameter mapsegm;
   HEAD head_type;
@@ -62,6 +64,7 @@ class Core {
                                                             int num_points, void *stream) = 0;
   virtual head::mapsegm::CanvasOutput forward_mapsegm(const unsigned char **camera_images, const nvtype::half *lidar_points,
                                                             int num_points, void *stream) = 0;
+  virtual head::mapsegm::CanvasOutput forward_lidarmapsegm(const nvtype::half* lidar_points, int num_points, void* stream) = 0;
 
   virtual std::vector<head::transbbox::BoundingBox> forward_no_normalize(const nvtype::half *camera_normed_images_device,
                                                                          const nvtype::half *lidar_points, int num_points,

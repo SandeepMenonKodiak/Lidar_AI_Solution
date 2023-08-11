@@ -53,6 +53,12 @@ class SCNImplement : public SCN {
   virtual std::vector<int64_t> shape() override {
     return native_scn_output_ == nullptr ? std::vector<int64_t>() : native_scn_output_->features_shape();
   }
+  virtual void print() override { 
+    printf("SCN: output shape\n"); 
+    for (auto i : shape()) {
+      printf("%ld ", i);
+    }  
+  }
 
  private:
   SCNParameter param_;
