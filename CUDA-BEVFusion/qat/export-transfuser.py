@@ -284,8 +284,8 @@ if __name__ == "__main__":
     
     TensorQuantizer.use_fb_fake_quant = True
     with torch.no_grad():
-        camera_features = torch.randn(1, 80, 180, 180).cuda()
-        lidar_features  = torch.randn(1, 256, 180, 180).cuda()
+        camera_features = torch.randn(1, 80, 128, 128).cuda()
+        lidar_features  = torch.randn(1, 256, 128, 128).cuda()
 
         fuser_onnx_path = f"{save_root}/fuser.onnx"
         torch.onnx.export(fuser, [camera_features, lidar_features], fuser_onnx_path, opset_version=13, 
@@ -295,7 +295,7 @@ if __name__ == "__main__":
         print(f"🚀 The export is completed. ONNX save as {fuser_onnx_path} 🤗, Have a nice day~")
 
         # boxhead_onnx_path = f"{save_root}/head.bbox.onnx"
-        head_input = torch.randn(1, 512, 180, 180).cuda()
+        head_input = torch.randn(1, 512, 128, 128).cuda()
         # torch.onnx.export(headbbox, head_input, f"{save_root}/head.bbox.onnx", opset_version=13, 
         #     input_names=["middle"],
         #     output_names=["score", "rot", "dim", "reg", "height", "vel"],

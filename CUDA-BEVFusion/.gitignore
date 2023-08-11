@@ -11,6 +11,8 @@ model
 example-data
 src/test
 *.zip
+*.pth
+*.onnx
 *.o
 *.so
 .vscode/
