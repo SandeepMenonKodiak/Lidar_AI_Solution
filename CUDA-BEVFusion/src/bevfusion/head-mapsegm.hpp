@@ -27,6 +27,8 @@ class MapSegHead {
  public:
   virtual CanvasOutput forward(const nvtype::half* transfusion_feature, void* stream) = 0;
   virtual void print() = 0;
+  virtual std::vector<int> input_shape() = 0;
+  virtual std::vector<int> output_shape() = 0;
 };
 
 std::shared_ptr<MapSegHead> create_mapseghead(const MapSegHeadParameter& param);
