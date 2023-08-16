@@ -105,6 +105,19 @@ target_link_libraries(bevfusion
 )
 #######################################################################
 
+####################### tester program #############################
+cuda_add_executable(tester 
+  src/tester.cpp
+  ${VISUALIZE_FILES}
+)
+
+target_link_libraries(tester
+  bevfusion_core
+  libnvinfer.so
+  libspconv.so
+  ${Protobuf_LIBRARIES}
+  libnvinfer_plugin.so
+)
 
 ########################## libpybev.so ################################
 if(${CMAKE_BUILD_PYTHON} STREQUAL "ON")
