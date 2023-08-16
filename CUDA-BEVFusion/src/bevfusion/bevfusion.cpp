@@ -83,11 +83,13 @@ class CoreImplement : public Core {
         return false;
       }
 
-      printf("Create transfusion\n");
-      transfusion_ = fuser::create_transfusion(param.transfusion);
-      if (transfusion_ == nullptr) {
-        printf("Failed to create transfusion.\n");
-        return false;
+      if(param.transfusion != "") {
+        printf("Create transfusion\n");
+        transfusion_ = fuser::create_transfusion(param.transfusion);
+        if (transfusion_ == nullptr) {
+          printf("Failed to create transfusion.\n");
+          return false;
+        }
       }
     }
 
@@ -96,6 +98,15 @@ class CoreImplement : public Core {
       lidardecoder_ = fuser::create_lidardecoder(param.lidardecoder);
       if (lidardecoder_ == nullptr) {
         printf("Failed to create lidar decoder.\n");
+        return false;
+      }
+    }
+
+    if(param.cameradecoder != "") {
+      printf("Create camera decoder\n");
+      cameradecoder_ = fuser::create_cameradecoder(param.cameradecoder);
+      if (cameradecoder_ == nullptr) {
+        printf("Failed to create camera decoder.\n");
         return false;
       }
     }
@@ -118,11 +129,13 @@ class CoreImplement : public Core {
       printf("Create head mapsegm done.\n");
     }
 
-    printf("Create lidar scn.\n");
-    lidar_scn_ = lidar::create_scn(param.lidar_scn);
-    if (lidar_scn_ == nullptr) {
-      printf("Failed to create lidar scn.\n");
-      return false;
+    if (param.lidar_scn.model != "") {
+      printf("Create lidar scn.\n");
+      lidar_scn_ = lidar::create_scn(param.lidar_scn);
+      if (lidar_scn_ == nullptr) {
+        printf("Failed to create lidar scn.\n");
+        return false;
+      }
     }
 
     if(camera_backbone_ || seg_camera_backbone_){
@@ -148,12 +161,14 @@ class CoreImplement : public Core {
       }
     }
 
-    capacity_points_ = 300000;
-    bytes_capacity_points_ = capacity_points_ * param.lidar_scn.voxelization.num_feature * sizeof(nvtype::half);
-    checkRuntime(cudaMalloc(&lidar_points_device_, bytes_capacity_points_));
-    checkRuntime(cudaMallocHost(&lidar_points_host_, bytes_capacity_points_));  // Pinned buffer. Accessible from GPU.
-    // Pinned buffer memory will not be swapped by the OS. Pages cannot be swapped and it is persistent.
-
+    if (param.lidar_scn.model != "") {
+      printf("Allocate lidar points buffer.\n");
+      capacity_points_ = 300000;
+      bytes_capacity_points_ = capacity_points_ * param.lidar_scn.voxelization.num_feature * sizeof(nvtype::half);
+      checkRuntime(cudaMalloc(&lidar_points_device_, bytes_capacity_points_));
+      checkRuntime(cudaMallocHost(&lidar_points_host_, bytes_capacity_points_));  // Pinned buffer. Accessible from GPU.
+      // Pinned buffer memory will not be swapped by the OS. Pages cannot be swapped and it is persistent.
+    }
     param_ = param;
 
     printf("Init done.\n");
@@ -252,6 +267,32 @@ class CoreImplement : public Core {
     printf("lidar decoder done\n");
 
     return this->mapsegm_->forward(lidardecoder_feature, stream);
+  }
+
+  head::mapsegm::CanvasOutput forward_cameramapsegm_only(const void* camera_images, void* stream, bool do_normalization) {
+
+
+    cudaStream_t _stream = static_cast<cudaStream_t>(stream);
+    nvtype::half* normed_images = (nvtype::half*)camera_images;
+    if (do_normalization) {
+      normed_images = (nvtype::half*)this->normalizer_->forward((const unsigned char**)(camera_images), stream);
+    }
+    printf("normalizer_ done\n");
+
+    this->seg_camera_backbone_->forward(normed_images, stream);
+    const nvtype::half* camera_bev = this->camera_bevpool_->forward(
+        this->seg_camera_backbone_->feature(), this->seg_camera_backbone_->depth(), this->camera_geometry_->indices(),
+        this->camera_geometry_->intervals(), this->camera_geometry_->num_intervals(), stream);
+    printf("camera_bevpool_ done\n");
+
+    const nvtype::half* camera_bevfeat = camera_vtransform_->forward(camera_bev, stream);
+    printf("camera_vtransform_ done \n");
+    printf("camera_bevfeat: %p\n", camera_bevfeat);
+
+    const nvtype::half* cameradecoder_feature = this->cameradecoder_->forward(camera_bevfeat, stream);
+    printf("camera decoder done\n");
+
+    return this->mapsegm_->forward(cameradecoder_feature, stream);
   }
 
   std::vector<head::transbbox::BoundingBox> forward_timer(const void* camera_images, const nvtype::half* lidar_points,
@@ -447,6 +488,10 @@ class CoreImplement : public Core {
     }
   }
 
+  virtual head::mapsegm::CanvasOutput forward_cameramapsegm(const unsigned char** camera_images, void* stream) override {
+      return this->forward_cameramapsegm_only(camera_images, stream, true);
+  }
+
   virtual void set_timer(bool enable) override { enable_timer_ = enable; }
 
   virtual void print() override {
@@ -464,6 +509,9 @@ class CoreImplement : public Core {
     }
     if (lidardecoder_) {
       lidardecoder_->print();
+    }
+    if (cameradecoder_) {
+      cameradecoder_->print();
     }
     if (transfusion_) {
       transfusion_->print();
@@ -505,6 +553,7 @@ class CoreImplement : public Core {
   std::shared_ptr<lidar::SCN> lidar_scn_;
   std::shared_ptr<fuser::Transfusion> transfusion_;
   std::shared_ptr<fuser::LidarDecoder> lidardecoder_;
+  std::shared_ptr<fuser::CameraDecoder> cameradecoder_;
   std::shared_ptr<head::transbbox::TransBBox> transbbox_;
   std::shared_ptr<head::mapsegm::MapSegHead> mapsegm_;
   float confidence_threshold_ = 0;

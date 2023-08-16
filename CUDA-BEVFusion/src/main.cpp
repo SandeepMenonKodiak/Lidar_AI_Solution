@@ -399,6 +399,59 @@ std::shared_ptr<bevfusion::Core> create_core_lidarmapseg(const std::string& mode
     return bevfusion::create_core(param);
 }
 
+
+std::shared_ptr<bevfusion::Core> create_core_cameramapseg(const std::string& model, const std::string& precision) {
+  printf("Create by %s, %s\n", model.c_str(), precision.c_str());
+  bevfusion::camera::NormalizationParameter normalization;
+    normalization.image_width = 1600;
+    normalization.image_height = 900;
+    normalization.output_width = 704;
+    normalization.output_height = 256;
+    normalization.num_camera = 6;
+    normalization.resize_lim = 0.48f;
+    normalization.interpolation = bevfusion::camera::Interpolation::Bilinear;
+
+    float mean[3] = {0.485, 0.456, 0.406};
+    float std[3] = {0.229, 0.224, 0.225};
+    normalization.method = bevfusion::camera::NormMethod::mean_std(mean, std, 1 / 255.0f, 0.0f);
+
+    bevfusion::lidar::VoxelizationParameter voxelization;
+    voxelization.min_range = nvtype::Float3(-54.0f, -54.0f, -5.0);
+    voxelization.max_range = nvtype::Float3(+54.0f, +54.0f, +3.0);
+    voxelization.voxel_size = nvtype::Float3(0.075f, 0.075f, 0.2f);
+    voxelization.grid_size =
+        voxelization.compute_grid_size(voxelization.max_range, voxelization.min_range, voxelization.voxel_size);
+    voxelization.max_points_per_voxel = 10;
+    voxelization.max_points = 300000;
+    voxelization.max_voxels = 160000;
+    voxelization.num_feature = 5;
+
+    bevfusion::camera::GeometryParameter geometry;
+    geometry.xbound = nvtype::Float3(-54.0f, 54.0f, 0.3f);
+    geometry.ybound = nvtype::Float3(-54.0f, 54.0f, 0.3f);
+    geometry.zbound = nvtype::Float3(-10.0f, 10.0f, 20.0f);
+    geometry.dbound = nvtype::Float3(1.0, 60.0f, 0.5f);
+    geometry.image_width = 704;
+    geometry.image_height = 256;
+    geometry.feat_width = 88;
+    geometry.feat_height = 32;
+    geometry.num_camera = 6;
+    geometry.geometry_dim = nvtype::Int3(360, 360, 80);
+
+    bevfusion::head::mapsegm::MapSegHeadParameter mapsegm;
+    mapsegm.model = nv::format("model/%s/build/head_sig.map.plan", model.c_str());
+    
+    bevfusion::CoreParameter param;
+    param.camera_model = nv::format("model/%s/build/camera.backbone.plan", model.c_str());
+    param.normalize = normalization;
+    param.geometry = geometry;
+    param.cameradecoder = nv::format("model/%s/build/camera_decoder.plan", model.c_str());
+    param.mapsegm = mapsegm;
+    param.head_type = bevfusion::HEAD::MAPSEGM;
+    param.camera_vtransform = nv::format("model/%s/build/camera.vtransform.plan", model.c_str());
+    return bevfusion::create_core(param);
+}
+
 bool load_grid_sampler_plugin() {
   void* handle = dlopen("/home/Lidar_AI_Solution/CUDA-BEVFusion/plugin_codes/GridsampleIPluginV2DynamicExt/gridSamplerPlugin.so", RTLD_LAZY);
     if (!handle) {
@@ -433,6 +486,8 @@ int main(int argc, char** argv) {
     core = create_core_mapseg(model, precision);
   else if (strcmp(model, "lidarmapsegm") == 0)
     core = create_core_lidarmapseg(model, precision);
+  else if (strcmp(model, "cameramapsegm") == 0)
+    core = create_core_cameramapseg(model, precision);
   else
     core = create_core_bbox(model, precision);
   
@@ -459,6 +514,9 @@ int main(int argc, char** argv) {
   // Load image and lidar to host
   auto images = load_images(data);
   auto lidar_points = nv::Tensor::load(nv::format("%s/points.tensor", data), false);
+  printf("Number of lidar points: %ld\n", lidar_points.size(0));
+  // std::cout << "Type of lidar_points: " << typeid(lidar_points.data()).name() << std::endl;
+  std::cout << "Type of lidar_points: " << static_cast<int>(lidar_points.data->dtype) << std::endl;
   
   // warmup
   if (strcmp(model, "mapsegm") == 0){
@@ -468,6 +526,10 @@ int main(int argc, char** argv) {
   else if (strcmp(model, "lidarmapsegm") == 0){
     auto maps = core->forward_lidarmapsegm(lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
     visualize_map("build/cuda-lidarmapsegm.jpg", maps, map_classes);
+  }
+  else if (strcmp(model, "cameramapsegm") == 0){
+    auto maps = core->forward_cameramapsegm((const unsigned char**)images.data(), stream);
+    visualize_map("build/cuda-cameramapsegm.jpg", maps, map_classes);
   }
   else{
     auto bboxes =
