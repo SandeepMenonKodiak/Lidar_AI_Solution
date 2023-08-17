@@ -128,6 +128,15 @@ class CoreImplement : public Core {
       }
       printf("Create head mapsegm done.\n");
     }
+    else if (param.head_type == HEAD::MAPREGR) {
+      printf("Create head mapregr.\n");
+      mapregr_ = head::mapregr::create_mapregrhead(param.mapregr);
+      if (mapregr_ == nullptr) {
+        printf("Failed to create head mapregr.\n");
+        return false;
+      }
+      printf("Create head mapregr done.\n");
+    }
 
     if (param.lidar_scn.model != "") {
       printf("Create lidar scn.\n");
@@ -224,31 +233,45 @@ class CoreImplement : public Core {
     // Names streams.
 
     const nvtype::half* lidar_feature = this->lidar_scn_->forward(lidar_points_device_, num_points, stream);
-    printf("lidar_scn_ done\n");
     nvtype::half* normed_images = (nvtype::half*)camera_images;
     if (do_normalization) {
       normed_images = (nvtype::half*)this->normalizer_->forward((const unsigned char**)(camera_images), stream);
     }
-    printf("normalizer_ done\n");
 
     this->seg_camera_backbone_->forward(normed_images, stream);
     const nvtype::half* camera_bev = this->camera_bevpool_->forward(
         this->seg_camera_backbone_->feature(), this->seg_camera_backbone_->depth(), this->camera_geometry_->indices(),
         this->camera_geometry_->intervals(), this->camera_geometry_->num_intervals(), stream);
-    printf("camera_bevpool_ done\n");
 
     const nvtype::half* camera_bevfeat = camera_vtransform_->forward(camera_bev, stream);
-    printf("camera_vtransform_ done \n");
-    printf("camera_bevfeat: %p\n", camera_bevfeat);
 
     const nvtype::half* fusion_feature = this->transfusion_->forward(camera_bevfeat, lidar_feature, stream);
-    printf("transfusion_ done\n");
 
     return this->mapsegm_->forward(fusion_feature, stream);
   }
 
-    head::mapsegm::CanvasOutput forward_lidarmapsegm_only(const nvtype::half* lidar_points, int num_points, void* stream) {
+  head::mapsegm::CanvasOutput forward_lidarmapsegm_only(const nvtype::half* lidar_points, int num_points, void* stream) {
     printf("forward_lidarmapsegm_only\n");
+    int cappoints = static_cast<int>(capacity_points_);
+    if (num_points > cappoints) {
+      printf("If it exceeds %d points, the default processing will simply crop it out.\n", cappoints);
+    }
+    num_points = std::min(cappoints, num_points);
+
+    cudaStream_t _stream = static_cast<cudaStream_t>(stream);
+    size_t bytes_points = num_points * param_.lidar_scn.voxelization.num_feature * sizeof(nvtype::half);
+    checkRuntime(cudaMemcpyAsync(lidar_points_host_, lidar_points, bytes_points, cudaMemcpyHostToHost, _stream));
+    checkRuntime(cudaMemcpyAsync(lidar_points_device_, lidar_points_host_, bytes_points, cudaMemcpyHostToDevice, _stream));
+
+    const nvtype::half* lidar_feature = this->lidar_scn_->forward(lidar_points_device_, num_points, stream);
+    
+    const nvtype::half* lidardecoder_feature = this->lidardecoder_->forward(lidar_feature, stream);
+
+    return this->mapsegm_->forward(lidardecoder_feature, stream);
+  }
+
+  head::mapregr::RegrOutput forward_lidarmapregr_only(const nvtype::half* lidar_points, int num_points, void* stream) {
+    printf("forward_lidarmapregr_only\n");
     int cappoints = static_cast<int>(capacity_points_);
     if (num_points > cappoints) {
       printf("If it exceeds %d points, the default processing will simply crop it out.\n", cappoints);
@@ -266,7 +289,7 @@ class CoreImplement : public Core {
     const nvtype::half* lidardecoder_feature = this->lidardecoder_->forward(lidar_feature, stream);
     printf("lidar decoder done\n");
 
-    return this->mapsegm_->forward(lidardecoder_feature, stream);
+    return this->mapregr_->forward(lidardecoder_feature, stream);
   }
 
   head::mapsegm::CanvasOutput forward_cameramapsegm_only(const void* camera_images, void* stream, bool do_normalization) {
@@ -492,6 +515,11 @@ class CoreImplement : public Core {
       return this->forward_cameramapsegm_only(camera_images, stream, true);
   }
 
+
+  virtual head::mapregr::RegrOutput forward_lidarmapregr(const nvtype::half* lidar_points, int num_points, void* stream) override {
+      return this->forward_lidarmapregr_only(lidar_points, num_points, stream);
+  }
+
   virtual void set_timer(bool enable) override { enable_timer_ = enable; }
 
   virtual void print() override {
@@ -556,6 +584,7 @@ class CoreImplement : public Core {
   std::shared_ptr<fuser::CameraDecoder> cameradecoder_;
   std::shared_ptr<head::transbbox::TransBBox> transbbox_;
   std::shared_ptr<head::mapsegm::MapSegHead> mapsegm_;
+  std::shared_ptr<head::mapregr::MapRegrHead> mapregr_;
   float confidence_threshold_ = 0;
   bool enable_timer_ = false;
 };

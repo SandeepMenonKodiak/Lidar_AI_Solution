@@ -368,14 +368,14 @@ std::shared_ptr<bevfusion::Core> create_core_lidarmapseg(const std::string& mode
   printf("[create_core_lidarmapseg] Create by %s, %s\n", model.c_str(), precision.c_str());
   
     bevfusion::lidar::VoxelizationParameter voxelization;
-    voxelization.min_range = nvtype::Float3(-54.0f, -54.0f, -5.0);
-    voxelization.max_range = nvtype::Float3(+54.0f, +54.0f, +3.0);
-    voxelization.voxel_size = nvtype::Float3(0.075f, 0.075f, 0.2f);
+    voxelization.min_range = nvtype::Float3(-51.2f, -51.2f, -5.0);
+    voxelization.max_range = nvtype::Float3(+51.2f, +51.2f, +3.0);
+    voxelization.voxel_size = nvtype::Float3(0.1f, 0.1f, 0.2f);
     voxelization.grid_size =
         voxelization.compute_grid_size(voxelization.max_range, voxelization.min_range, voxelization.voxel_size);
     voxelization.max_points_per_voxel = 10;
     voxelization.max_points = 300000;
-    voxelization.max_voxels = 160000;
+    voxelization.max_voxels = 120000;
     voxelization.num_feature = 5;
 
     bevfusion::lidar::SCNParameter scn;
@@ -396,6 +396,41 @@ std::shared_ptr<bevfusion::Core> create_core_lidarmapseg(const std::string& mode
     param.lidardecoder = nv::format("model/%s/build/lidar_decoder.plan", model.c_str());
     param.mapsegm = mapsegm;
     param.head_type = bevfusion::HEAD::MAPSEGM;
+    return bevfusion::create_core(param);
+}
+
+std::shared_ptr<bevfusion::Core> create_core_lidarmapregr(const std::string& model, const std::string& precision) {
+  printf("[create_core_lidarmapregr] Create by %s, %s\n", model.c_str(), precision.c_str());
+  
+    bevfusion::lidar::VoxelizationParameter voxelization;
+    voxelization.min_range = nvtype::Float3(-51.2f, -51.2f, -5.0);
+    voxelization.max_range = nvtype::Float3(+51.2f, +51.2f, +3.0);
+    voxelization.voxel_size = nvtype::Float3(0.1f, 0.1f, 0.2f);
+    voxelization.grid_size =
+        voxelization.compute_grid_size(voxelization.max_range, voxelization.min_range, voxelization.voxel_size);
+    voxelization.max_points_per_voxel = 10;
+    voxelization.max_points = 300000;
+    voxelization.max_voxels = 120000;
+    voxelization.num_feature = 5;
+
+    bevfusion::lidar::SCNParameter scn;
+    scn.voxelization = voxelization;
+    scn.model = nv::format("model/%s/lidar.backbone.xyz.onnx", model.c_str());
+    scn.order = bevfusion::lidar::CoordinateOrder::XYZ;
+
+    if (precision == "int8") {
+      scn.precision = bevfusion::lidar::Precision::Int8;
+    } else {
+      scn.precision = bevfusion::lidar::Precision::Float16;
+    }
+    bevfusion::head::mapregr::MapRegrHeadParameter mapregr;
+    mapregr.model = nv::format("model/%s/build/head.map.plan", model.c_str());
+    
+    bevfusion::CoreParameter param;
+    param.lidar_scn = scn;
+    param.lidardecoder = nv::format("model/%s/build/lidar_decoder.plan", model.c_str());
+    param.mapregr = mapregr;
+    param.head_type = bevfusion::HEAD::MAPREGR;
     return bevfusion::create_core(param);
 }
 
@@ -488,6 +523,8 @@ int main(int argc, char** argv) {
     core = create_core_lidarmapseg(model, precision);
   else if (strcmp(model, "cameramapsegm") == 0)
     core = create_core_cameramapseg(model, precision);
+  else if (strcmp(model, "lidarmapregr") == 0)
+    core = create_core_lidarmapregr(model, precision);
   else
     core = create_core_bbox(model, precision);
   
@@ -530,6 +567,10 @@ int main(int argc, char** argv) {
   else if (strcmp(model, "cameramapsegm") == 0){
     auto maps = core->forward_cameramapsegm((const unsigned char**)images.data(), stream);
     visualize_map("build/cuda-cameramapsegm.jpg", maps, map_classes);
+  }
+  else if (strcmp(model, "lidarmapregr") == 0)
+  {
+    auto ground = core->forward_lidarmapregr(lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
   }
   else{
     auto bboxes =
