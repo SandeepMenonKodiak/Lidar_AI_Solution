@@ -17,3 +17,6 @@ src/test
 *.so
 .vscode/
 plugin_codes/*.txt
+example1/
+kodiak-example/
+test_*/
