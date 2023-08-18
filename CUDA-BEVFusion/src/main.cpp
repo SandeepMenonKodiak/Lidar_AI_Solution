@@ -39,9 +39,50 @@
 #include "common/timer.hpp"
 #include "common/visualize.hpp"
 #include <dlfcn.h>
-
+#include <cfloat>
+#include <limits>
+#include <iostream>
+#include <fstream>
 
 using Color = std::tuple<unsigned char, unsigned char, unsigned char>;
+
+
+void saveAsTensor(const std::string& filePath, const bevfusion::head::mapregr::RegrOutput& data) {
+    std::ofstream file(filePath, std::ios::binary);
+    if (!file) {
+        std::cerr << "Error opening file for writing: " << filePath << std::endl;
+        return;
+    }
+
+    // Write the magic number (as int32)
+    int32_t magic_number = 0x33ff1101;
+    file.write(reinterpret_cast<const char*>(&magic_number), sizeof(int32_t));
+
+    // Write number of dimensions (as int32)
+    int32_t ndim = 3;  // As data is a 3D vector
+    file.write(reinterpret_cast<const char*>(&ndim), sizeof(int32_t));
+
+    // Write the datatype as int32 (3 corresponds to float32)
+    int32_t dtype = 3;
+    file.write(reinterpret_cast<const char*>(&dtype), sizeof(int32_t));
+
+    // Write the shape of the tensor
+    int32_t dims[3];
+    dims[0] = data.size();
+    dims[1] = (data.empty() ? 0 : data[0].size());
+    dims[2] = (data.empty() || data[0].empty() ? 0 : data[0][0].size());
+
+    file.write(reinterpret_cast<const char*>(dims), 3 * sizeof(int32_t));
+
+    // Write the actual data
+    for (const auto& dim1 : data) {
+        for (const auto& dim2 : dim1) {
+            file.write(reinterpret_cast<const char*>(dim2.data()), dim2.size() * sizeof(float));
+        }
+    }
+
+    file.close();
+}
 
 // Define the MAP_PALETTE
 std::map<std::string, Color> MAP_PALETTE = {

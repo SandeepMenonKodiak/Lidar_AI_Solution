@@ -34,12 +34,12 @@ export CUDA_HOME=/usr/local/cuda
 export CUDNN_Lib=/usr/lib/x86_64-linux-gnu
 
 
-# resnet50/resnet50int8/swint/mapsegm/lidarmapsegm
-export DEBUG_MODEL=lidarmapsegm
+# resnet50/resnet50int8/swint/mapsegm/lidarmapsegm/cameramapsegm/lidarmapregr
+export DEBUG_MODEL=lidarmapregr
 
 # fp16/int8
 export DEBUG_PRECISION=fp16
-export DEBUG_DATA=example-data
+export DEBUG_DATA=kodiak-example
 export USE_Python=ON
 
 # check the configuration path

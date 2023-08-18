@@ -133,6 +133,35 @@ bevfusion::head::mapsegm::CanvasOutput copyToCanvasOutput(const nvtype::half* da
     return output;
 }
 
+bevfusion::head::mapregr::RegrOutput copyToRegrOutput(const nvtype::half* data, const std::vector<int64_t>& shape) {
+    bevfusion::head::mapregr::RegrOutput output;
+    int batch_size = shape[0];
+    int height = shape[1];
+    int width = shape[2];
+
+    half* out_data = nullptr;
+    checkRuntime(cudaMallocHost(&out_data, batch_size * height * width * sizeof(half)));
+    checkRuntime(cudaMemcpy(out_data, data, batch_size * height * width * sizeof(half), cudaMemcpyDeviceToHost));
+
+    output.resize(batch_size);
+    for(int b = 0; b<batch_size;++b){
+            output[b].resize(height);
+            for(int h = 0; h<height;++h){
+                output[b][h].resize(width);
+                for(int w = 0; w<width;++w){
+                    int idx = b*height*width + h*width + w;
+                    output[b][h][w] = __half2float(out_data[idx]);
+                }
+            }
+        }
+    
+
+    if(out_data)
+        checkRuntime(cudaFreeHost(out_data));
+
+    return output;
+}
+
 bool areCanvasOutputsClose(const bevfusion::head::mapsegm::CanvasOutput v1, const bevfusion::head::mapsegm::CanvasOutput v2, float epsilon) {
     if (v1.size() != v2.size()) return false;
     for (size_t i = 0; i < v1.size(); ++i) {
@@ -149,6 +178,22 @@ bool areCanvasOutputsClose(const bevfusion::head::mapsegm::CanvasOutput v1, cons
             }
         }
     }
+    return true;
+}
+
+bool areRegrOutputsClose(const bevfusion::head::mapregr::RegrOutput v1, const bevfusion::head::mapregr::RegrOutput v2, float epsilon) {
+    if (v1.size() != v2.size()) return false;
+    for (size_t i = 0; i < v1.size(); ++i) {
+      if (v1[i].size() != v2[i].size()) return false;
+      for (size_t j = 0; j < v1[i].size(); ++j) {
+          if (v1[i][j].size() != v2[i][j].size()) return false;
+          for (size_t k = 0; k < v1[i][j].size(); ++k) {
+            if (std::abs(v1[i][j][k] - v2[i][j][k]) > epsilon) {
+              return false;
+            }
+          }
+        }
+      }
     return true;
 }
 
@@ -317,7 +362,7 @@ bool load_grid_sampler_plugin() {
 bool test_lidarsegencoder(const std::string& model, const std::string& precision, const std::string& data) {
     try {
       // Dummy data
-      auto input_data = nv::Tensor::load(nv::format("%s/lidar.tensor", data.c_str()), false);
+      auto input_data = nv::Tensor::load(nv::format("%s/points.tensor", data.c_str()), false);
       auto output_data = nv::Tensor::load(nv::format("%s/lidar_features.tensor", data.c_str()), false);
       std::vector<int64_t> input_shape = input_data.shape;
       std::vector<int64_t> output_shape = output_data.shape;
@@ -376,24 +421,24 @@ bool test_lidarsegencoder(const std::string& model, const std::string& precision
       bevfusion::head::mapsegm::CanvasOutput model_out = copyToCanvasOutput(lidar_feature, output_shape);
       bevfusion::head::mapsegm::CanvasOutput output = copyToCanvasOutput(output_data.ptr<nvtype::half>(), output_shape);
 
-    int batch_size = output_shape[0];
-    int channels = output_shape[1];
-    int height = output_shape[2];
-    int width = output_shape[3];
+      int batch_size = output_shape[0];
+      int channels = output_shape[1];
+      int height = output_shape[2];
+      int width = output_shape[3];
 
-    float pred_max_value = FLT_MIN;
-    float out_max_value = FLT_MIN;
-    for(int b = 0; b<batch_size;++b){
-      for(int c = 0; c<channels;++c){
-        for(int h = 0; h<height;++h){
-          for(int w = 0; w<width;++w){
-            pred_max_value = std::max(pred_max_value, model_out[b][c][h][w]);
-            out_max_value = std::max(out_max_value, output[b][c][h][w]);
+      float pred_max_value = FLT_MIN;
+      float out_max_value = FLT_MIN;
+      for(int b = 0; b<batch_size;++b){
+        for(int c = 0; c<channels;++c){
+          for(int h = 0; h<height;++h){
+            for(int w = 0; w<width;++w){
+              pred_max_value = std::max(pred_max_value, model_out[b][c][h][w]);
+              out_max_value = std::max(out_max_value, output[b][c][h][w]);
+            }
           }
         }
       }
-    }
-    printf("pred_max_value is: %f, out_max_value is: %f\n", pred_max_value, out_max_value);
+      printf("pred_max_value is: %f, out_max_value is: %f\n", pred_max_value, out_max_value);
 
       return areCanvasOutputsClose(model_out, output, 0.5);
     }
@@ -403,6 +448,101 @@ bool test_lidarsegencoder(const std::string& model, const std::string& precision
     }
 }
 
+bool test_regrmodel(const std::string& model, const std::string& precision, const std::string& data) {
+  try{
+    // Dummy data
+    auto input_data = nv::Tensor::load(nv::format("%s/points.tensor", data.c_str()), false);
+    auto output_data = nv::Tensor::load(nv::format("%s/prediction.tensor", data.c_str()), false);
+    std::vector<int64_t> input_shape = input_data.shape;
+    std::vector<int64_t> output_shape = output_data.shape;
+    int num_points = input_data.size(0);
+    nvtype::half* lidar_points = input_data.ptr<nvtype::half>();
+
+    for(int i = 0; i < input_shape.size(); i++){
+      printf("input_shape[%d] is: %ld\n", i, input_shape[i]);
+    }
+    for(int i = 0; i < output_shape.size(); i++){
+      printf("output_shape[%d] is: %ld\n", i, output_shape[i]);
+    }
+
+    // Load model
+    bevfusion::lidar::VoxelizationParameter voxelization;
+    voxelization.min_range = nvtype::Float3(-51.2f, -51.2f, -5.0);
+    voxelization.max_range = nvtype::Float3(+51.2f, +51.2f, +3.0);
+    voxelization.voxel_size = nvtype::Float3(0.1f, 0.1f, 0.2f);
+    voxelization.grid_size =
+    voxelization.compute_grid_size(voxelization.max_range, voxelization.min_range, voxelization.voxel_size);
+    voxelization.max_points_per_voxel = 10;
+    voxelization.max_points = 300000;
+    voxelization.max_voxels = 120000;
+    voxelization.num_feature = 5;
+    bevfusion::lidar::SCNParameter lidar_scn;
+    lidar_scn.voxelization = voxelization;
+    lidar_scn.model = nv::format("model/%s/lidar.backbone.xyz.onnx", model.c_str());
+    lidar_scn.order = bevfusion::lidar::CoordinateOrder::XYZ;
+    bevfusion::head::mapregr::MapRegrHeadParameter mapregr_param;
+    mapregr_param.model = nv::format("model/%s/build/head.map.plan", model.c_str());
+    
+    nvtype::half* lidar_points_device_ = nullptr;
+    nvtype::half* lidar_points_host_ = nullptr;
+    size_t capacity_points_ = 300000;
+    size_t bytes_capacity_points_ = capacity_points_ * lidar_scn.voxelization.num_feature * sizeof(nvtype::half);
+    std::shared_ptr<bevfusion::lidar::SCN> lidar_scn_ = bevfusion::lidar::create_scn(lidar_scn);
+    const std::string lidardecoder_param = nv::format("model/%s/build/lidar_decoder.plan", model.c_str());
+    std::shared_ptr<bevfusion::fuser::LidarDecoder> lidardecoder_ = bevfusion::fuser::create_lidardecoder(lidardecoder_param);
+    std::shared_ptr<bevfusion::head::mapregr::MapRegrHead> mapregr_ = bevfusion::head::mapregr::create_mapregrhead(mapregr_param);
+
+    checkRuntime(cudaMalloc(&lidar_points_device_, bytes_capacity_points_));
+    checkRuntime(cudaMallocHost(&lidar_points_host_, bytes_capacity_points_));
+
+    //Forward pass
+    cudaStream_t _stream;
+    cudaStreamCreate(&_stream);
+
+    size_t bytes_points = num_points * lidar_scn.voxelization.num_feature * sizeof(nvtype::half);
+    checkRuntime(cudaMemcpyAsync(lidar_points_host_, lidar_points, bytes_points, cudaMemcpyHostToHost, _stream));
+    checkRuntime(cudaMemcpyAsync(lidar_points_device_, lidar_points_host_, bytes_points, cudaMemcpyHostToDevice, _stream));
+
+    const nvtype::half* lidar_feature = lidar_scn_->forward(lidar_points_device_, num_points, _stream);
+    const nvtype::half* lidardecoder_feature = lidardecoder_->forward(lidar_feature, _stream);
+    const bevfusion::head::mapregr::RegrOutput model_out = mapregr_->forward(lidardecoder_feature, _stream);
+    
+    checkRuntime(cudaStreamSynchronize(_stream));
+    checkRuntime(cudaStreamSynchronize(_stream));
+    cudaStreamDestroy(_stream);
+    
+    const bevfusion::head::mapregr::RegrOutput output = copyToRegrOutput(output_data.ptr<nvtype::half>(), output_shape);
+
+     int batch_size = output_shape[0];
+      int height = output_shape[1];
+      int width = output_shape[2];
+
+      float pred_max_value = FLT_MIN;
+      float out_max_value = FLT_MIN;
+      float pred_min_value = FLT_MAX;
+      float out_min_value = FLT_MAX;
+      for(int b = 0; b<batch_size;++b){
+          for(int h = 0; h<height;++h){
+            for(int w = 0; w<width;++w){
+              pred_max_value = std::max(pred_max_value, model_out[b][h][w]);
+              out_max_value = std::max(out_max_value, output[b][h][w]);
+              pred_min_value = std::min(pred_min_value, model_out[b][h][w]);
+              out_min_value = std::min(out_min_value, output[b][h][w]);
+            }
+          }
+        }
+      
+      printf("pred_max_value is: %f, out_max_value is: %f\n", pred_max_value, out_max_value);
+      printf("pred_min_value is: %f, out_min_value is: %f\n", pred_min_value, out_min_value);
+
+    return areRegrOutputsClose(model_out, output, 1e-1);
+  }
+  catch (const std::exception& e) {
+    std::cerr << e.what() << std::endl;
+    return false;
+  }
+
+}
 int main(int argc, char** argv) {
 
   if(!load_grid_sampler_plugin()){
@@ -422,27 +562,32 @@ int main(int argc, char** argv) {
   printf("Model: %s\n", model);
   printf("Precision: %s\n", precision);
 
-  if (!test_seghead(model, precision, data)) {
-      printf("[test_seghead] Test failed.\n");
-      return -1;
+  if(!test_regrmodel(model, precision, data)) {
+    printf("[test_regrmodel] Test failed.\n");
+    return -1;
   }
 
-  if(strcmp(model, "cameramapsegm") == 0) {
-    if (!test_camsegdecoder(model, precision, data)) {
-        printf("[test_camsegdecoder] Test failed.\n");
-        return -1;
-    }
-  }
+  // if (!test_seghead(model, precision, data)) {
+  //     printf("[test_seghead] Test failed.\n");
+  //     return -1;
+  // }
 
-  if(strcmp(model, "lidarmapsegm") == 0) {
-    if (!test_lidarsegencoder(model, precision, data)) {
-      printf("[test_lidarsegencoder] Test failed.\n");
-      return -1;
-    }
+  // if(strcmp(model, "cameramapsegm") == 0) {
+  //   if (!test_camsegdecoder(model, precision, data)) {
+  //       printf("[test_camsegdecoder] Test failed.\n");
+  //       return -1;
+  //   }
+  // }
 
-    if (!test_lidarsegdecoder(model, precision, data)) {
-      printf("[test_lidarsegdecoder] Test failed.\n");
-      return -1;
-    }
-  }
+  // if(strcmp(model, "lidarmapsegm") == 0) {
+  //   if (!test_lidarsegencoder(model, precision, data)) {
+  //     printf("[test_lidarsegencoder] Test failed.\n");
+  //     return -1;
+  //   }
+
+  //   if (!test_lidarsegdecoder(model, precision, data)) {
+  //     printf("[test_lidarsegdecoder] Test failed.\n");
+  //     return -1;
+  //   }
+  // }
 }
