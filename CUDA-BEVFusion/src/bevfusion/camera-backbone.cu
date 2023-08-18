@@ -51,9 +51,6 @@ class BackboneImplement : public Backbone {
 
     volumn = std::accumulate(feature_dims_.begin(), feature_dims_.end(), 1, std::multiplies<int32_t>());
     checkRuntime(cudaMalloc(&feature_, volumn * sizeof(nvtype::half)));
-    for(size_t i = 0; i < feature_dims_.size(); ++i) {
-      printf("feature_dims_[%zu] = %d\n", i, feature_dims_[i]);
-    }
 
     // N C D H W
     camera_shape_ = {feature_dims_[0], feature_dims_[3], depth_dims_[1], feature_dims_[1], feature_dims_[2]};
@@ -105,9 +102,6 @@ class SegmBackboneImplement : public SegmBackbone {
     
     volumn = std::accumulate(feature_dims_.begin(), feature_dims_.end(), 1, std::multiplies<int32_t>());
     checkRuntime(cudaMalloc(&feature_, volumn * sizeof(nvtype::half)));
-    for(size_t i = 0; i < feature_dims_.size(); ++i) {
-      printf("feature_dims_[%zu] = %d\n", i, feature_dims_[i]);
-    }
 
     // N C D H W
     camera_shape_ = {feature_dims_[0], feature_dims_[3], depth_dims_[1], feature_dims_[1], feature_dims_[2]};

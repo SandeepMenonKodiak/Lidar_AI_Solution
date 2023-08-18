@@ -475,6 +475,42 @@ class CoreImplement : public Core {
     return output;
     }
 
+  head::mapregr::RegrOutput forward_lidarmapregr_timer(const nvtype::half* lidar_points, int num_points, void* stream) {
+    std::vector<float> times;
+    
+    int cappoints = static_cast<int>(capacity_points_);
+    if (num_points > cappoints) {
+      printf("If it exceeds %d points, the default processing will simply crop it out.\n", cappoints);
+    }
+    num_points = std::min(cappoints, num_points);
+
+    cudaStream_t _stream = static_cast<cudaStream_t>(stream);
+    timer_.start(_stream);
+
+    size_t bytes_points = num_points * param_.lidar_scn.voxelization.num_feature * sizeof(nvtype::half);
+    checkRuntime(cudaMemcpyAsync(lidar_points_host_, lidar_points, bytes_points, cudaMemcpyHostToHost, _stream));
+    checkRuntime(cudaMemcpyAsync(lidar_points_device_, lidar_points_host_, bytes_points, cudaMemcpyHostToDevice, _stream));
+    timer_.stop("[NoSt] CopyLidar");
+
+    timer_.start(_stream);
+    const nvtype::half* lidar_feature = this->lidar_scn_->forward(lidar_points_device_, num_points, stream);
+    times.emplace_back(timer_.stop("Lidar Backbone"));
+    
+    timer_.start(_stream);
+    const nvtype::half* lidardecoder_feature = this->lidardecoder_->forward(lidar_feature, stream);
+    times.emplace_back(timer_.stop("Lidar decoder"));
+
+    timer_.start(_stream);
+    auto output = this->mapregr_->forward(lidardecoder_feature, stream);
+    times.emplace_back(timer_.stop("Head Map Regression"));
+
+    float total_time = std::accumulate(times.begin(), times.end(), 0.0f, std::plus<float>{});
+    printf("Total: %.3f ms\n", total_time);
+    printf("=============================================\n");
+
+    return output;
+  }
+
   virtual std::vector<head::transbbox::BoundingBox> forward(const unsigned char** camera_images, const nvtype::half* lidar_points,
                                                             int num_points, void* stream) override {
     if (enable_timer_) {
@@ -517,7 +553,11 @@ class CoreImplement : public Core {
 
 
   virtual head::mapregr::RegrOutput forward_lidarmapregr(const nvtype::half* lidar_points, int num_points, void* stream) override {
+    if(enable_timer_) {
+      return this->forward_lidarmapregr_timer(lidar_points, num_points, stream);
+    } else {
       return this->forward_lidarmapregr_only(lidar_points, num_points, stream);
+    }
   }
 
   virtual void set_timer(bool enable) override { enable_timer_ = enable; }

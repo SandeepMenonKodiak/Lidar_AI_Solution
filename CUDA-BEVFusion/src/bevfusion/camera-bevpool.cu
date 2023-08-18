@@ -80,15 +80,10 @@ class BEVPoolImplement : public BEVPool {
     this->camera_shape_ = camera_shape;
     this->bev_width_ = bev_width;
     this->bev_height_ = bev_height;
-    printf("BEVPoolImplement::init\n");
 
-    for(size_t i=0;i<camera_shape_.size();i++){
-        printf("camera_shape_[%zu]: %d\n", i, camera_shape_[i]);
-    }
     unsigned int C = camera_shape_[1];
     volumn_output_ = C * bev_width * bev_height;
     output_dims_ = {1, (int)C, (int)bev_height, (int)bev_width};
-    printf("C: %d, bev_width: %d, bev_height: %d\n", C, bev_width, bev_height);
     checkRuntime(cudaMalloc(&output_feature_, volumn_output_ * sizeof(nvtype::half)));
     return true;
   }
@@ -104,18 +99,11 @@ class BEVPoolImplement : public BEVPool {
     D = camera_shape_[2];
     H = camera_shape_[3];
     W = camera_shape_[4];
-    for(size_t i=0;i<camera_shape_.size();i++){
-        printf("camera_shape_[%zu]: %d\n", i, camera_shape_[i]);
-    }
-    printf("C: %d, D: %d, H: %d, W: %d Size:%zu\n", C, D, H, W, camera_shape_.size());
 
     cudaStream_t _stream = static_cast<cudaStream_t>(stream);
 
     int thread_x = C / tile_size;
     int thread_y = 1024 / thread_x;
-    printf("thread_x: %d, thread_y: %d\n", thread_x, thread_y);
-    printf("num_intervals: %d\n", num_intervals);
-    printf("area: %d\n", W * H);
 
     dim3 threads(thread_x, thread_y);
     dim3 blocks(1, int((num_intervals + thread_y - 1) / thread_y));

@@ -32,20 +32,14 @@ class MapSegHeadImplement : public MapSegHead {
       return false;
     }
     
-    printf("MapSegHeadImplement::init\n");
 
     param_ = param;
     create_binding_memory();
-    printf("Input binding shape is: %d %d %d %d\n", inp_bindshape_[0], inp_bindshape_[1], inp_bindshape_[2], inp_bindshape_[3]);
-    std::cout << "Output Binding shape is: " << out_bindshape_[0] << " " << out_bindshape_[1] << " " << out_bindshape_[2] << " "
-              << out_bindshape_[3] << std::endl;
     checkRuntime(cudaMallocHost(&output_host_map_, out_bindshape_[0] * out_bindshape_[1] * out_bindshape_[2] * out_bindshape_[3] * sizeof(half)));
     return true;
   }
 
   void create_binding_memory() {
-    std::cout<<"create binding memory"<<std::endl;
-    std::cout<<"engine_->num_bindings() is: "<<engine_->num_bindings()<<std::endl;
     inp_bindshape_ = engine_->static_dims(0);
     out_bindshape_ = engine_->static_dims(1);
     size_t volumn = std::accumulate(out_bindshape_.begin(), out_bindshape_.end(), 1, std::multiplies<int>());

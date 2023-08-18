@@ -34,10 +34,7 @@ class SCNImplement : public SCN {
     this->param_ = param;
     voxelization_ = create_voxelization(param_.voxelization);
     if (voxelization_ == nullptr) return false;
-    printf("SCN: voxelization initialized\n");
-    printf("SCN: loading model from %s\n", param_.model.c_str());
     native_scn_ = spconv::load_engine_from_onnx(param_.model, static_cast<spconv::Precision>(param_.precision));
-    printf("SCN: model loaded\n");
     return native_scn_ != nullptr;
   }
 

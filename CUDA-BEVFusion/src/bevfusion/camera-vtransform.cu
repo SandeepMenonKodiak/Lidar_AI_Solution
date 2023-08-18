@@ -47,11 +47,6 @@ class VTransformImplement : public VTransform {
     int32_t volumn = std::accumulate(output_dims_.begin(), output_dims_.end(), 1, std::multiplies<int32_t>());
     checkRuntime(cudaMalloc(&output_feature_, volumn * sizeof(nvtype::half)));
 
-    for(size_t i=0;i<output_dims_.size();i++){
-      printf("output_dims_[%zu]: %d\n", i, output_dims_[i]);
-    }
-    printf("volumn: %d\n", volumn);
-
     return true;
   }
 
