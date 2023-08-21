@@ -353,18 +353,6 @@ int32_t GridsampleIPluginV2DynamicExt::enqueue(PluginTensorDesc const *inputDesc
 
     GridSamplerDataType dataType = (mType == DataType::kFLOAT ? GridSamplerDataType::GFLOAT : GridSamplerDataType::GHALF);
 
-    std::cout << "mBatch: " << mBatch << std::endl;
-    std::cout << "mInputChannel: " << mInputChannel << std::endl;
-    std::cout << "mInputHeight: " << mInputHeight << std::endl;
-    std::cout << "mInputWidth: " << mInputWidth << std::endl;
-    std::cout << "mGridHeight: " << mGridHeight << std::endl;
-    std::cout << "mGridWidth: " << mGridWidth << std::endl;
-    std::cout << "mInterpolationMode: " << to_string(mInterpolationMode) << std::endl;
-    std::cout << "mPaddingMode: " << to_string(mPaddingMode) << std::endl;
-    std::cout << "mAlignCorners: " << mAlignCorners << std::endl;
-    std::cout << "dataType: " << to_string(dataType) << std::endl;
-
-
     status = grid_sampler_2d_cuda(mBatch, inputs[0], inputs[1], outputs[0],
         mInputChannel, mInputHeight, mInputWidth, mGridHeight, mGridWidth,
         mInputChannel*mInputHeight*mInputWidth, mInputHeight*mInputWidth, mInputWidth, 1,

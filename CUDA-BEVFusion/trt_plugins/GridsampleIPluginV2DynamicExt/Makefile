@@ -44,7 +44,7 @@ CUSOURCE=gridSampler.cu
 # This is the corresponding object file
 CUOBJECT=gridSampler.o
 
-all: gridSamplerPlugin.so
+all: libGridSamplerPlugin.so
 
 clean:
 	rm -f *.so *.o
@@ -52,8 +52,8 @@ clean:
 $(CUOBJECT): $(CUSOURCE)
 	$(NVCC) -ccbin $(CC) $(INCS) $(NVCCFLAGS) -Xcompiler -fPIC -c -o $@ $<
 
-gridSamplerPlugin.so: gridSamplerPlugin.o $(CUOBJECT)
+libGridSamplerPlugin.so: libGridSamplerPlugin.o $(CUOBJECT)
 	$(CC) -shared -o $@ $^ $(LIBS)
 
-gridSamplerPlugin.o: GridsampleIPluginV2DynamicExt.cpp GridsampleIPluginV2DynamicExt.h
+libGridSamplerPlugin.o: GridsampleIPluginV2DynamicExt.cpp GridsampleIPluginV2DynamicExt.h
 	$(NVCC) -ccbin $(CC) $(INCS) $(NVCCFLAGS) -Xcompiler -fPIC -c -o $@ $<
