@@ -23,55 +23,63 @@
 
 #include <cuda_fp16.h>
 
+#include <algorithm>
 #include <numeric>
 
-#include "camera-vtransform.hpp"
 #include "common/check.hpp"
 #include "common/launch.cuh"
 #include "common/tensorrt.hpp"
+#include "camera-decoder.hpp"
 
 namespace bevfusion {
-namespace camera {
+namespace fuser {
 
-class VTransformImplement : public VTransform {
+class CameraDecoderImplement : public CameraDecoder {
  public:
-  virtual ~VTransformImplement() {
-    if (output_feature_) checkRuntime(cudaFree(output_feature_));
+  virtual ~CameraDecoderImplement() {
+    if (output_) checkRuntime(cudaFree(output_));
   }
 
-  bool init(const std::string& model) {
+  virtual bool init(const std::string& model) {
     engine_ = TensorRT::load(model);
     if (engine_ == nullptr) return false;
 
-    output_dims_ = engine_->static_dims(1);
-    int32_t volumn = std::accumulate(output_dims_.begin(), output_dims_.end(), 1, std::multiplies<int32_t>());
-    checkRuntime(cudaMalloc(&output_feature_, volumn * sizeof(nvtype::half)));
+    if (engine_->has_dynamic_dim()) {
+      printf("Dynamic shapes are not supported.\n");
+      return false;
+    }
 
+    int output_binding = 1;
+    auto shape = engine_->static_dims(output_binding);
+    Asserts(engine_->dtype(output_binding) == TensorRT::DType::HALF, "Invalid binding data type.");
+
+    size_t volumn = std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<int>());
+    checkRuntime(cudaMalloc(&output_, volumn * sizeof(half)));
     return true;
   }
 
-  virtual void print() override { engine_->print("Camerea VTransform"); }
+  virtual void print() override { engine_->print("CameraDecoder"); }
 
-  virtual nvtype::half* forward(const nvtype::half* camera_bev, void* stream = nullptr) override {
-    engine_->forward({camera_bev, output_feature_}, static_cast<cudaStream_t>(stream));
-    return output_feature_;
+  virtual nvtype::half* forward(const nvtype::half* camera_bev, void* stream) override {
+    cudaStream_t _stream = static_cast<cudaStream_t>(stream);
+    engine_->forward({/* input  */ camera_bev,
+                      /* output */ output_},
+                     _stream);
+    return output_;
   }
-
-  virtual std::vector<int> feat_shape() override { return output_dims_; }
 
  private:
   std::shared_ptr<TensorRT::Engine> engine_;
-  nvtype::half* output_feature_ = nullptr;
-  std::vector<int> output_dims_;
+  nvtype::half* output_ = nullptr;
 };
 
-std::shared_ptr<VTransform> create_vtransform(const std::string& model) {
-  std::shared_ptr<VTransformImplement> instance(new VTransformImplement());
-  if (!instance->init(model)) {
+std::shared_ptr<CameraDecoder> create_cameradecoder(const std::string& param) {
+  std::shared_ptr<CameraDecoderImplement> instance(new CameraDecoderImplement());
+  if (!instance->init(param)) {
     instance.reset();
   }
   return instance;
 }
 
-};  // namespace camera
+};  // namespace fuser
 };  // namespace bevfusion

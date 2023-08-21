@@ -34,7 +34,6 @@ class SCNImplement : public SCN {
     this->param_ = param;
     voxelization_ = create_voxelization(param_.voxelization);
     if (voxelization_ == nullptr) return false;
-
     native_scn_ = spconv::load_engine_from_onnx(param_.model, static_cast<spconv::Precision>(param_.precision));
     return native_scn_ != nullptr;
   }
@@ -50,6 +49,12 @@ class SCNImplement : public SCN {
 
   virtual std::vector<int64_t> shape() override {
     return native_scn_output_ == nullptr ? std::vector<int64_t>() : native_scn_output_->features_shape();
+  }
+  virtual void print() override { 
+    printf("SCN: output shape\n"); 
+    for (auto i : shape()) {
+      printf("%ld ", i);
+    }  
   }
 
  private:

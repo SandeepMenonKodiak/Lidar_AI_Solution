@@ -10,3 +10,13 @@ tool/__pycache__/
 model
 example-data
 src/test
+*.zip
+*.pth
+*.onnx
+*.o
+*.so
+.vscode/
+plugin_codes/*.txt
+example1/
+kodiak-example/
+test_*/

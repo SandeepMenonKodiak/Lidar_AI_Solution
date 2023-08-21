@@ -21,37 +21,28 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef __LIDAR_SCN_HPP__
-#define __LIDAR_SCN_HPP__
+#ifndef __CAMERA_LSS_BEVPOOL_HPP__
+#define __CAMERA_LSS_BEVPOOL_HPP__
 
+#include <memory>
+#include <string>
 #include <vector>
 
-#include "lidar-voxelization.hpp"
+#include "common/dtype.hpp"
 
 namespace bevfusion {
-namespace lidar {
+namespace camera {
 
-// use model accuracy during SCN model inference.
-enum class Precision : int { NonePrecision = 0, Float16 = 1, Int8 = 2 };
-
-struct SCNParameter {
-  VoxelizationParameter voxelization;
-  std::string model;
-  CoordinateOrder order = CoordinateOrder::XYZ;
-  Precision precision = Precision::Float16;
-};
-
-class SCN {
+class LSSBEVPool {
  public:
-  // points and voxels must be of half-float device pointer
-  virtual const nvtype::half* forward(const nvtype::half* points, unsigned int num_points, void* stream = nullptr) = 0;
-  virtual std::vector<int64_t> shape() = 0;
-  virtual void print() = 0;
+  virtual nvtype::half* forward(const nvtype::half* camera_feature, const unsigned int* indices, const nvtype::Int3* intervals, 
+                                  unsigned int num_intervals, void* stream = nullptr) = 0;
+  virtual std::vector<int> shape() = 0;
 };
 
-std::shared_ptr<SCN> create_scn(const SCNParameter& param);
+std::shared_ptr<LSSBEVPool> create_lss_bevpool(const std::vector<int>& camera_shape, unsigned int bev_width, unsigned int bev_height);
 
-};  // namespace lidar
+};  // namespace camera
 };  // namespace bevfusion
 
-#endif  // __LIDAR_SCN_HPP__
+#endif  // __CAMERA_LSS_BEVPOOL_HPP__

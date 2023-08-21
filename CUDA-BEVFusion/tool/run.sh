@@ -38,4 +38,6 @@ make -j
 
 cd ..
 
+cp ./build/libpybev.so ./tool/
+
 ./build/bevfusion $DEBUG_DATA $DEBUG_MODEL $DEBUG_PRECISION

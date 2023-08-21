@@ -21,37 +21,27 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef __LIDAR_SCN_HPP__
-#define __LIDAR_SCN_HPP__
+#ifndef __CAMERADECODER_HPP__
+#define __CAMERADECODER_HPP__
 
+#include <memory>
+#include <string>
 #include <vector>
 
-#include "lidar-voxelization.hpp"
+#include "common/dtype.hpp"
 
 namespace bevfusion {
-namespace lidar {
+namespace fuser {
 
-// use model accuracy during SCN model inference.
-enum class Precision : int { NonePrecision = 0, Float16 = 1, Int8 = 2 };
-
-struct SCNParameter {
-  VoxelizationParameter voxelization;
-  std::string model;
-  CoordinateOrder order = CoordinateOrder::XYZ;
-  Precision precision = Precision::Float16;
-};
-
-class SCN {
+class CameraDecoder {
  public:
-  // points and voxels must be of half-float device pointer
-  virtual const nvtype::half* forward(const nvtype::half* points, unsigned int num_points, void* stream = nullptr) = 0;
-  virtual std::vector<int64_t> shape() = 0;
+  virtual nvtype::half* forward(const nvtype::half* camera_bev, void* stream) = 0;
   virtual void print() = 0;
 };
 
-std::shared_ptr<SCN> create_scn(const SCNParameter& param);
+std::shared_ptr<CameraDecoder> create_cameradecoder(const std::string& model);
 
-};  // namespace lidar
+};  // namespace fuser
 };  // namespace bevfusion
 
-#endif  // __LIDAR_SCN_HPP__
+#endif  // __CAMERADECODER_HPP__

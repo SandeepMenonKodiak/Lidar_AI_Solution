@@ -23,8 +23,10 @@
 
 #include <cuda_runtime.h>
 #include <string.h>
+#include <cuda_fp16.h>
 
 #include <vector>
+#include <map>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -37,10 +39,151 @@
 #include "common/tensor.hpp"
 #include "common/timer.hpp"
 #include "common/visualize.hpp"
+#include <dlfcn.h>
+#include <cfloat>
+#include <limits>
+#include <iostream>
+#include <fstream>
+
+using Color = std::tuple<unsigned char, unsigned char, unsigned char>;
+
+
+void saveAsTensor(const std::string& filePath, const bevfusion::head::mapregr::RegrOutput& data) {
+    std::ofstream file(filePath, std::ios::binary);
+    if (!file) {
+        std::cerr << "Error opening file for writing: " << filePath << std::endl;
+        return;
+    }
+
+    // Write the magic number (as int32)
+    int32_t magic_number = 0x33ff1101;
+    file.write(reinterpret_cast<const char*>(&magic_number), sizeof(int32_t));
+
+    // Write number of dimensions (as int32)
+    int32_t ndim = 3;  // As data is a 3D vector
+    file.write(reinterpret_cast<const char*>(&ndim), sizeof(int32_t));
+
+    // Write the datatype as int32 (3 corresponds to float32)
+    int32_t dtype = 3;
+    file.write(reinterpret_cast<const char*>(&dtype), sizeof(int32_t));
+
+    // Write the shape of the tensor
+    int32_t dims[3];
+    dims[0] = data.size();
+    dims[1] = (data.empty() ? 0 : data[0].size());
+    dims[2] = (data.empty() || data[0].empty() ? 0 : data[0][0].size());
+
+    file.write(reinterpret_cast<const char*>(dims), 3 * sizeof(int32_t));
+
+    // Write the actual data
+    for (const auto& dim1 : data) {
+        for (const auto& dim2 : dim1) {
+            file.write(reinterpret_cast<const char*>(dim2.data()), dim2.size() * sizeof(float));
+        }
+    }
+
+    file.close();
+}
+
+// Define the MAP_PALETTE
+std::map<std::string, Color> MAP_PALETTE = {
+    {"drivable_area", {166, 206, 227}},
+    {"road_segment", {31, 120, 180}},
+    {"road_block", {178, 223, 138}},
+    {"lane", {51, 160, 44}},
+    {"ped_crossing", {251, 154, 153}},
+    {"walkway", {227, 26, 28}},
+    {"stop_line", {253, 191, 111}},
+    {"carpark_area", {255, 127, 0}},
+    {"road_divider", {202, 178, 214}},
+    {"lane_divider", {106, 61, 154}},
+    {"divider", {106, 61, 154}}
+};
+
+std::vector<std::string> map_classes = {
+    "drivable_area",
+    "ped_crossing",
+    "walkway",
+    "stop_line",
+    "carpark_area",
+    "divider"
+};
+
+void visualize_map(const std::string& fpath, const bevfusion::head::mapsegm::CanvasOutput& masks, const std::vector<std::string>& classes) {
+    int batch = masks.size();
+    if (batch == 0) return;  // no masks to visualize
+
+    int channels = masks[0].size();
+    if (channels == 0) return;
+
+    int height = masks[0][0].size();
+    if (height == 0) return;
+
+    int width = masks[0][0][0].size();
+    if (width == 0) return;
+    printf("width is: %d, height is: %d, channels is: %d, batch_size is: %d\n", width, height, channels, batch);
+    
+    // Create an empty image with 3 channels (RGB)
+    std::vector<unsigned char> image(height * width * 3, 240);  // assuming the default background is (240,240,240)
+    std::map<float, int> frequency; // Key: number, Value: count
+    
+    // Here, let's assume that you're only interested in visualizing the first batch of masks.
+    for (size_t k = 0; k < classes.size() && k < channels; ++k) {
+        float max_value = FLT_MIN;
+        float min_value = FLT_MAX;
+        const std::string& name = classes[k];
+        if (MAP_PALETTE.find(name) != MAP_PALETTE.end()) {
+            Color color = MAP_PALETTE[name];
+            for (int i = 0; i < height; ++i) {
+                for (int j = 0; j < width; ++j) {
+                  // frequency[masks[0][k][i][j]]++;
+                    max_value = std::max(max_value, masks[0][k][i][j]);
+                    min_value = std::min(min_value, masks[0][k][i][j]);
+                    if (masks[0][k][i][j] >= 0.5) {
+                        int index = (i * width + j) * 3;
+                        // printf("color: %d %d %d\n", std::get<0>(color), std::get<1>(color), std::get<2>(color));
+                        image[index] = std::get<0>(color);
+                        image[index + 1] = std::get<1>(color);
+                        image[index + 2] = std::get<2>(color);
+                    }
+                    else{
+                        // printf("color: %d %d %d\n", std::get<0>(color), std::get<1>(color), std::get<2>(color));
+                    }
+                }
+            }
+        }
+      printf("[Channel: %s] max_value is: %f, min_value is: %f\n", name.c_str(), max_value, min_value);
+
+    }
+    
+    // Print frequencies
+    // for (const auto& pair : frequency) {
+    //     printf("Number: %f, Count: %d\n", pair.first, pair.second);
+    // }
+
+    stbi_write_jpg(fpath.c_str(), width, height, 3, &image[0], 100);
+}
+
+
+// static std::vector<unsigned char*> load_images(const std::string& root) {
+//   const char* file_names[] = {"0-FRONT.jpg", "1-FRONT_RIGHT.jpg", "2-FRONT_LEFT.jpg",
+//                               "3-BACK.jpg",  "4-BACK_LEFT.jpg",   "5-BACK_RIGHT.jpg"};
+
+//   std::vector<unsigned char*> images;
+//   for (int i = 0; i < 6; ++i) {
+//     char path[200];
+//     sprintf(path, "%s/%s", root.c_str(), file_names[i]);
+
+//     int width, height, channels;
+//     images.push_back(stbi_load(path, &width, &height, &channels, 0));
+//     // printf("Image info[%d]: %d x %d : %d\n", i, width, height, channels);
+//   }
+//   return images;
+// }
 
 static std::vector<unsigned char*> load_images(const std::string& root) {
-  const char* file_names[] = {"0-FRONT.jpg", "1-FRONT_RIGHT.jpg", "2-FRONT_LEFT.jpg",
-                              "3-BACK.jpg",  "4-BACK_LEFT.jpg",   "5-BACK_RIGHT.jpg"};
+  const char* file_names[] = {"0-FRONT.png", "1-FRONT_RIGHT.png", "2-FRONT_LEFT.png",
+                              "3-BACK.png",  "4-BACK_LEFT.png",   "5-BACK_RIGHT.png"};
 
   std::vector<unsigned char*> images;
   for (int i = 0; i < 6; ++i) {
@@ -60,7 +203,7 @@ static void free_images(std::vector<unsigned char*>& images) {
   images.clear();
 }
 
-static void visualize(const std::vector<bevfusion::head::transbbox::BoundingBox>& bboxes, const nv::Tensor& lidar_points,
+static void visualize_bbox(const std::vector<bevfusion::head::transbbox::BoundingBox>& bboxes, const nv::Tensor& lidar_points,
                       const std::vector<unsigned char*> images, const nv::Tensor& lidar2image, const std::string& save_path,
                       cudaStream_t stream) {
   std::vector<nv::Prediction> predictions(bboxes.size());
@@ -145,7 +288,7 @@ static void visualize(const std::vector<bevfusion::head::transbbox::BoundingBox>
                  scene_device_image.to_host(stream).ptr(), 100);
 }
 
-std::shared_ptr<bevfusion::Core> create_core(const std::string& model, const std::string& precision) {
+std::shared_ptr<bevfusion::Core> create_core_bbox(const std::string& model, const std::string& precision) {
 
   printf("Create by %s, %s\n", model.c_str(), precision.c_str());
   bevfusion::camera::NormalizationParameter normalization;
@@ -212,11 +355,213 @@ std::shared_ptr<bevfusion::Core> create_core(const std::string& model, const std
   param.geometry = geometry;
   param.transfusion = nv::format("model/%s/build/fuser.plan", model.c_str());
   param.transbbox = transbbox;
+  param.head_type = bevfusion::HEAD::TRANSBBOX;
   param.camera_vtransform = nv::format("model/%s/build/camera.vtransform.plan", model.c_str());
   return bevfusion::create_core(param);
 }
 
+std::shared_ptr<bevfusion::Core> create_core_mapseg(const std::string& model, const std::string& precision) {
+  printf("Create by %s, %s\n", model.c_str(), precision.c_str());
+  bevfusion::camera::NormalizationParameter normalization;
+    normalization.image_width = 1600;
+    normalization.image_height = 900;
+    normalization.output_width = 704;
+    normalization.output_height = 256;
+    normalization.num_camera = 6;
+    normalization.resize_lim = 0.48f;
+    normalization.interpolation = bevfusion::camera::Interpolation::Bilinear;
+
+    float mean[3] = {0.485, 0.456, 0.406};
+    float std[3] = {0.229, 0.224, 0.225};
+    normalization.method = bevfusion::camera::NormMethod::mean_std(mean, std, 1 / 255.0f, 0.0f);
+
+    bevfusion::lidar::VoxelizationParameter voxelization;
+    voxelization.min_range = nvtype::Float3(-54.0f, -54.0f, -5.0);
+    voxelization.max_range = nvtype::Float3(+54.0f, +54.0f, +3.0);
+    voxelization.voxel_size = nvtype::Float3(0.075f, 0.075f, 0.2f);
+    voxelization.grid_size =
+        voxelization.compute_grid_size(voxelization.max_range, voxelization.min_range, voxelization.voxel_size);
+    voxelization.max_points_per_voxel = 10;
+    voxelization.max_points = 300000;
+    voxelization.max_voxels = 160000;
+    voxelization.num_feature = 5;
+
+    bevfusion::lidar::SCNParameter scn;
+    scn.voxelization = voxelization;
+    scn.model = nv::format("model/%s/lidar.backbone.xyz.onnx", model.c_str());
+    scn.order = bevfusion::lidar::CoordinateOrder::XYZ;
+
+    if (precision == "int8") {
+      scn.precision = bevfusion::lidar::Precision::Int8;
+    } else {
+      scn.precision = bevfusion::lidar::Precision::Float16;
+    }
+
+    bevfusion::camera::GeometryParameter geometry;
+    geometry.xbound = nvtype::Float3(-54.0f, 54.0f, 0.3f);
+    geometry.ybound = nvtype::Float3(-54.0f, 54.0f, 0.3f);
+    geometry.zbound = nvtype::Float3(-10.0f, 10.0f, 20.0f);
+    geometry.dbound = nvtype::Float3(1.0, 60.0f, 0.5f);
+    geometry.image_width = 704;
+    geometry.image_height = 256;
+    geometry.feat_width = 88;
+    geometry.feat_height = 32;
+    geometry.num_camera = 6;
+    geometry.geometry_dim = nvtype::Int3(360, 360, 80);
+
+    bevfusion::head::mapsegm::MapSegHeadParameter mapsegm;
+    mapsegm.model = nv::format("model/%s/build/head_sig.map.plan", model.c_str());
+    
+    bevfusion::CoreParameter param;
+    param.camera_model = nv::format("model/%s/build/camera.backbone.plan", model.c_str());
+    param.normalize = normalization;
+    param.lidar_scn = scn;
+    param.geometry = geometry;
+    param.transfusion = nv::format("model/%s/build/fuser.plan", model.c_str());
+    param.mapsegm = mapsegm;
+    param.head_type = bevfusion::HEAD::MAPSEGM;
+    param.camera_vtransform = nv::format("model/%s/build/camera.vtransform.plan", model.c_str());
+    return bevfusion::create_core(param);
+}
+
+std::shared_ptr<bevfusion::Core> create_core_lidarmapseg(const std::string& model, const std::string& precision) {
+  printf("[create_core_lidarmapseg] Create by %s, %s\n", model.c_str(), precision.c_str());
+  
+    bevfusion::lidar::VoxelizationParameter voxelization;
+    voxelization.min_range = nvtype::Float3(-51.2f, -51.2f, -5.0);
+    voxelization.max_range = nvtype::Float3(+51.2f, +51.2f, +3.0);
+    voxelization.voxel_size = nvtype::Float3(0.1f, 0.1f, 0.2f);
+    voxelization.grid_size =
+        voxelization.compute_grid_size(voxelization.max_range, voxelization.min_range, voxelization.voxel_size);
+    voxelization.max_points_per_voxel = 10;
+    voxelization.max_points = 300000;
+    voxelization.max_voxels = 120000;
+    voxelization.num_feature = 5;
+
+    bevfusion::lidar::SCNParameter scn;
+    scn.voxelization = voxelization;
+    scn.model = nv::format("model/%s/lidar.backbone.xyz.onnx", model.c_str());
+    scn.order = bevfusion::lidar::CoordinateOrder::XYZ;
+
+    if (precision == "int8") {
+      scn.precision = bevfusion::lidar::Precision::Int8;
+    } else {
+      scn.precision = bevfusion::lidar::Precision::Float16;
+    }
+    bevfusion::head::mapsegm::MapSegHeadParameter mapsegm;
+    mapsegm.model = nv::format("model/%s/build/head_sig.map.plan", model.c_str());
+    
+    bevfusion::CoreParameter param;
+    param.lidar_scn = scn;
+    param.lidardecoder = nv::format("model/%s/build/lidar_decoder.plan", model.c_str());
+    param.mapsegm = mapsegm;
+    param.head_type = bevfusion::HEAD::MAPSEGM;
+    return bevfusion::create_core(param);
+}
+
+std::shared_ptr<bevfusion::Core> create_core_lidarmapregr(const std::string& model, const std::string& precision) {
+  printf("[create_core_lidarmapregr] Create by %s, %s\n", model.c_str(), precision.c_str());
+  
+    bevfusion::lidar::VoxelizationParameter voxelization;
+    voxelization.min_range = nvtype::Float3(-51.2f, -51.2f, -5.0);
+    voxelization.max_range = nvtype::Float3(+51.2f, +51.2f, +3.0);
+    voxelization.voxel_size = nvtype::Float3(0.1f, 0.1f, 0.2f);
+    voxelization.grid_size =
+        voxelization.compute_grid_size(voxelization.max_range, voxelization.min_range, voxelization.voxel_size);
+    voxelization.max_points_per_voxel = 10;
+    voxelization.max_points = 300000;
+    voxelization.max_voxels = 120000;
+    voxelization.num_feature = 5;
+
+    bevfusion::lidar::SCNParameter scn;
+    scn.voxelization = voxelization;
+    scn.model = nv::format("model/%s/lidar.backbone.xyz.onnx", model.c_str());
+    scn.order = bevfusion::lidar::CoordinateOrder::XYZ;
+
+    if (precision == "int8") {
+      scn.precision = bevfusion::lidar::Precision::Int8;
+    } else {
+      scn.precision = bevfusion::lidar::Precision::Float16;
+    }
+    bevfusion::head::mapregr::MapRegrHeadParameter mapregr;
+    mapregr.model = nv::format("model/%s/build/head.map.plan", model.c_str());
+    
+    bevfusion::CoreParameter param;
+    param.lidar_scn = scn;
+    param.lidardecoder = nv::format("model/%s/build/lidar_decoder.plan", model.c_str());
+    param.mapregr = mapregr;
+    param.head_type = bevfusion::HEAD::MAPREGR;
+    return bevfusion::create_core(param);
+}
+
+
+std::shared_ptr<bevfusion::Core> create_core_cameramapseg(const std::string& model, const std::string& precision) {
+  printf("Create by %s, %s\n", model.c_str(), precision.c_str());
+  bevfusion::camera::NormalizationParameter normalization;
+    normalization.image_width = 1600;
+    normalization.image_height = 900;
+    normalization.output_width = 704;
+    normalization.output_height = 256;
+    normalization.num_camera = 6;
+    normalization.resize_lim = 0.48f;
+    normalization.interpolation = bevfusion::camera::Interpolation::Bilinear;
+
+    float mean[3] = {0.485, 0.456, 0.406};
+    float std[3] = {0.229, 0.224, 0.225};
+    normalization.method = bevfusion::camera::NormMethod::mean_std(mean, std, 1 / 255.0f, 0.0f);
+
+    bevfusion::lidar::VoxelizationParameter voxelization;
+    voxelization.min_range = nvtype::Float3(-54.0f, -54.0f, -5.0);
+    voxelization.max_range = nvtype::Float3(+54.0f, +54.0f, +3.0);
+    voxelization.voxel_size = nvtype::Float3(0.075f, 0.075f, 0.2f);
+    voxelization.grid_size =
+        voxelization.compute_grid_size(voxelization.max_range, voxelization.min_range, voxelization.voxel_size);
+    voxelization.max_points_per_voxel = 10;
+    voxelization.max_points = 300000;
+    voxelization.max_voxels = 160000;
+    voxelization.num_feature = 5;
+
+    bevfusion::camera::GeometryParameter geometry;
+    geometry.xbound = nvtype::Float3(-54.0f, 54.0f, 0.3f);
+    geometry.ybound = nvtype::Float3(-54.0f, 54.0f, 0.3f);
+    geometry.zbound = nvtype::Float3(-10.0f, 10.0f, 20.0f);
+    geometry.dbound = nvtype::Float3(1.0, 60.0f, 0.5f);
+    geometry.image_width = 704;
+    geometry.image_height = 256;
+    geometry.feat_width = 88;
+    geometry.feat_height = 32;
+    geometry.num_camera = 6;
+    geometry.geometry_dim = nvtype::Int3(360, 360, 80);
+
+    bevfusion::head::mapsegm::MapSegHeadParameter mapsegm;
+    mapsegm.model = nv::format("model/%s/build/head_sig.map.plan", model.c_str());
+    
+    bevfusion::CoreParameter param;
+    param.camera_model = nv::format("model/%s/build/camera.backbone.plan", model.c_str());
+    param.normalize = normalization;
+    param.geometry = geometry;
+    param.cameradecoder = nv::format("model/%s/build/camera_decoder.plan", model.c_str());
+    param.mapsegm = mapsegm;
+    param.head_type = bevfusion::HEAD::MAPSEGM;
+    param.camera_vtransform = nv::format("model/%s/build/camera.vtransform.plan", model.c_str());
+    return bevfusion::create_core(param);
+}
+
+bool load_grid_sampler_plugin() {
+  void* handle = dlopen("/home/Lidar_AI_Solution/CUDA-BEVFusion/trt_plugins/GridsampleIPluginV2DynamicExt/libGridSamplerPlugin.so", RTLD_LAZY);
+    if (!handle) {
+        // Handle error - the .so file cannot be loaded
+        printf("Cannot load library: %s\n", dlerror());
+        return false;
+    }
+    return true;
+}
 int main(int argc, char** argv) {
+
+  if(!load_grid_sampler_plugin()){
+    printf("Cannot load grid sampler plugin.\n");
+    return -1;
+  }
 
   const char* data      = "example-data";
   const char* model     = "resnet50int8";
@@ -226,7 +571,23 @@ int main(int argc, char** argv) {
   if (argc > 2) model     = argv[2];
   if (argc > 3) precision = argv[3];
 
-  auto core = create_core(model, precision);
+  printf("Data: %s\n", data);
+  printf("Model: %s\n", model);
+  printf("Precision: %s\n", precision);
+
+  std::shared_ptr<bevfusion::Core> core;
+
+  if (strcmp(model, "mapsegm") == 0)
+    core = create_core_mapseg(model, precision);
+  else if (strcmp(model, "lidarmapsegm") == 0)
+    core = create_core_lidarmapseg(model, precision);
+  else if (strcmp(model, "cameramapsegm") == 0)
+    core = create_core_cameramapseg(model, precision);
+  else if (strcmp(model, "lidarmapregr") == 0)
+    core = create_core_lidarmapregr(model, precision);
+  else
+    core = create_core_bbox(model, precision);
+  
   if (core == nullptr) {
     printf("Core has been failed.\n");
     return -1;
@@ -250,18 +611,38 @@ int main(int argc, char** argv) {
   // Load image and lidar to host
   auto images = load_images(data);
   auto lidar_points = nv::Tensor::load(nv::format("%s/points.tensor", data), false);
+  printf("Number of lidar points: %ld\n", lidar_points.size(0));
+  // std::cout << "Type of lidar_points: " << typeid(lidar_points.data()).name() << std::endl;
+  std::cout << "Type of lidar_points: " << static_cast<int>(lidar_points.data->dtype) << std::endl;
   
   // warmup
-  auto bboxes =
+  if (strcmp(model, "mapsegm") == 0){
+    auto maps = core->forward_mapsegm((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
+    visualize_map("build/cuda-mapsegm.jpg", maps, map_classes);
+  }
+  else if (strcmp(model, "lidarmapsegm") == 0){
+    auto maps = core->forward_lidarmapsegm(lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
+    visualize_map("build/cuda-lidarmapsegm.jpg", maps, map_classes);
+  }
+  else if (strcmp(model, "cameramapsegm") == 0){
+    auto maps = core->forward_cameramapsegm((const unsigned char**)images.data(), stream);
+    visualize_map("build/cuda-cameramapsegm.jpg", maps, map_classes);
+  }
+  else if (strcmp(model, "lidarmapregr") == 0)
+  {
+    auto ground = core->forward_lidarmapregr(lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
+    saveAsTensor("build/cuda-lidarmapregr.tensor", ground);
+  }
+  else{
+    auto bboxes =
       core->forward((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
-
+      visualize_bbox(bboxes, lidar_points, images, lidar2image, "build/cuda-bevfusion.jpg", stream);
+  }
+  printf("Warmup done.\n");
   // evaluate inference time
   for (int i = 0; i < 5; ++i) {
-    core->forward((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
+    core->forward_lidarmapregr(lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
   }
-
-  // visualize and save to jpg
-  visualize(bboxes, lidar_points, images, lidar2image, "build/cuda-bevfusion.jpg", stream);
 
   // destroy memory
   free_images(images);
