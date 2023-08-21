@@ -23,6 +23,7 @@
 
 #include <cuda_runtime.h>
 #include <string.h>
+#include <cuda_fp16.h>
 
 #include <vector>
 #include <map>
@@ -125,19 +126,20 @@ void visualize_map(const std::string& fpath, const bevfusion::head::mapsegm::Can
     // Create an empty image with 3 channels (RGB)
     std::vector<unsigned char> image(height * width * 3, 240);  // assuming the default background is (240,240,240)
     std::map<float, int> frequency; // Key: number, Value: count
-    float max_value = 0;
-    float min_value = 1;
+    
     // Here, let's assume that you're only interested in visualizing the first batch of masks.
-    for (int k = 0; k < classes.size() && k < channels; ++k) {
+    for (size_t k = 0; k < classes.size() && k < channels; ++k) {
+        float max_value = FLT_MIN;
+        float min_value = FLT_MAX;
         const std::string& name = classes[k];
         if (MAP_PALETTE.find(name) != MAP_PALETTE.end()) {
             Color color = MAP_PALETTE[name];
             for (int i = 0; i < height; ++i) {
                 for (int j = 0; j < width; ++j) {
-                  frequency[masks[0][k][i][j]]++;
+                  // frequency[masks[0][k][i][j]]++;
                     max_value = std::max(max_value, masks[0][k][i][j]);
                     min_value = std::min(min_value, masks[0][k][i][j]);
-                    if (masks[0][k][i][j] >= 0.5) {  // Assuming a threshold of 0.5 for visualization
+                    if (masks[0][k][i][j] >= 0.5) {
                         int index = (i * width + j) * 3;
                         // printf("color: %d %d %d\n", std::get<0>(color), std::get<1>(color), std::get<2>(color));
                         image[index] = std::get<0>(color);
@@ -150,9 +152,10 @@ void visualize_map(const std::string& fpath, const bevfusion::head::mapsegm::Can
                 }
             }
         }
+      printf("[Channel: %s] max_value is: %f, min_value is: %f\n", name.c_str(), max_value, min_value);
+
     }
     
-    printf("max_value is: %f, min_value is: %f\n", max_value, min_value);
     // Print frequencies
     // for (const auto& pair : frequency) {
     //     printf("Number: %f, Count: %d\n", pair.first, pair.second);
@@ -162,9 +165,25 @@ void visualize_map(const std::string& fpath, const bevfusion::head::mapsegm::Can
 }
 
 
+// static std::vector<unsigned char*> load_images(const std::string& root) {
+//   const char* file_names[] = {"0-FRONT.jpg", "1-FRONT_RIGHT.jpg", "2-FRONT_LEFT.jpg",
+//                               "3-BACK.jpg",  "4-BACK_LEFT.jpg",   "5-BACK_RIGHT.jpg"};
+
+//   std::vector<unsigned char*> images;
+//   for (int i = 0; i < 6; ++i) {
+//     char path[200];
+//     sprintf(path, "%s/%s", root.c_str(), file_names[i]);
+
+//     int width, height, channels;
+//     images.push_back(stbi_load(path, &width, &height, &channels, 0));
+//     // printf("Image info[%d]: %d x %d : %d\n", i, width, height, channels);
+//   }
+//   return images;
+// }
+
 static std::vector<unsigned char*> load_images(const std::string& root) {
-  const char* file_names[] = {"0-FRONT.jpg", "1-FRONT_RIGHT.jpg", "2-FRONT_LEFT.jpg",
-                              "3-BACK.jpg",  "4-BACK_LEFT.jpg",   "5-BACK_RIGHT.jpg"};
+  const char* file_names[] = {"0-FRONT.png", "1-FRONT_RIGHT.png", "2-FRONT_LEFT.png",
+                              "3-BACK.png",  "4-BACK_LEFT.png",   "5-BACK_RIGHT.png"};
 
   std::vector<unsigned char*> images;
   for (int i = 0; i < 6; ++i) {
@@ -529,7 +548,7 @@ std::shared_ptr<bevfusion::Core> create_core_cameramapseg(const std::string& mod
 }
 
 bool load_grid_sampler_plugin() {
-  void* handle = dlopen("/home/Lidar_AI_Solution/CUDA-BEVFusion/plugin_codes/GridsampleIPluginV2DynamicExt/gridSamplerPlugin.so", RTLD_LAZY);
+  void* handle = dlopen("/home/Lidar_AI_Solution/CUDA-BEVFusion/trt_plugins/GridsampleIPluginV2DynamicExt/libGridSamplerPlugin.so", RTLD_LAZY);
     if (!handle) {
         // Handle error - the .so file cannot be loaded
         printf("Cannot load library: %s\n", dlerror());
@@ -578,7 +597,7 @@ int main(int argc, char** argv) {
   cudaStreamCreate(&stream);
  
   core->print();
-  core->set_timer(false);
+  core->set_timer(true);
 
   // Load matrix to host
   auto camera2lidar = nv::Tensor::load(nv::format("%s/camera2lidar.tensor", data), false);
@@ -612,6 +631,7 @@ int main(int argc, char** argv) {
   else if (strcmp(model, "lidarmapregr") == 0)
   {
     auto ground = core->forward_lidarmapregr(lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
+    saveAsTensor("build/cuda-lidarmapregr.tensor", ground);
   }
   else{
     auto bboxes =
@@ -620,9 +640,9 @@ int main(int argc, char** argv) {
   }
   printf("Warmup done.\n");
   // evaluate inference time
-  // for (int i = 0; i < 5; ++i) {
-  //   core->forward_mapsegm((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
-  // }
+  for (int i = 0; i < 5; ++i) {
+    core->forward_lidarmapregr(lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
+  }
 
   // destroy memory
   free_images(images);

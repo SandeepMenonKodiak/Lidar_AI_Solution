@@ -40,8 +40,4 @@ cd ..
 
 cp ./build/libpybev.so ./tool/
 
-/usr/local/cuda/compute-sanitizer/compute-sanitizer --tool memcheck ./build/bevfusion $DEBUG_DATA swint $DEBUG_PRECISION > ./tool/bevfusion_swint.log 2>&1
-/usr/local/cuda/compute-sanitizer/compute-sanitizer --tool memcheck ./build/bevfusion $DEBUG_DATA segm $DEBUG_PRECISION > ./tool/bevfusion_segm.log 2>&1
-
-# /usr/local/cuda/compute-sanitizer/compute-sanitizer --tool memcheck ./build/bevfusion $DEBUG_DATA $DEBUG_MODEL $DEBUG_PRECISION > ./tool/bevfusion_$DEBUG_MODEL.log 2>&1
-# ./build/bevfusion $DEBUG_DATA $DEBUG_MODEL $DEBUG_PRECISION
+./build/bevfusion $DEBUG_DATA $DEBUG_MODEL $DEBUG_PRECISION

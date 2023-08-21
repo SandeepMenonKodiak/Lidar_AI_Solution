@@ -172,6 +172,8 @@ bool areCanvasOutputsClose(const bevfusion::head::mapsegm::CanvasOutput v1, cons
                 if (v1[i][j][k].size() != v2[i][j][k].size()) return false;
                 for (size_t l = 0; l < v1[i][j][k].size(); ++l) {
                     if (std::abs(v1[i][j][k][l] - v2[i][j][k][l]) > epsilon) {
+                      std::cout << "v1[" << i << "][" << j << "][" << k << "][" << l << "] = " << v1[i][j][k][l] << std::endl;
+                      std::cout << "v2[" << i << "][" << j << "][" << k << "][" << l << "] = " << v2[i][j][k][l] << std::endl;
                       return false;
                     }
                 }
@@ -350,7 +352,7 @@ bool test_lidarsegdecoder(const std::string& model, const std::string& precision
 }
 
 bool load_grid_sampler_plugin() {
-  void* handle = dlopen("/home/Lidar_AI_Solution/CUDA-BEVFusion/plugin_codes/GridsampleIPluginV2DynamicExt/gridSamplerPlugin.so", RTLD_LAZY);
+  void* handle = dlopen("/home/Lidar_AI_Solution/CUDA-BEVFusion/trt_plugins/GridsampleIPluginV2DynamicExt/libGridSamplerPlugin.so", RTLD_LAZY);
     if (!handle) {
         // Handle error - the .so file cannot be loaded
         printf("Cannot load library: %s\n", dlerror());
@@ -562,32 +564,36 @@ int main(int argc, char** argv) {
   printf("Model: %s\n", model);
   printf("Precision: %s\n", precision);
 
-  if(!test_regrmodel(model, precision, data)) {
-    printf("[test_regrmodel] Test failed.\n");
-    return -1;
+  if(strstr(model, "mapregr") != NULL) {
+    if(!test_regrmodel(model, precision, data)) {
+      printf("[test_regrmodel] Test failed.\n");
+      return -1;
+    }
   }
 
-  // if (!test_seghead(model, precision, data)) {
-  //     printf("[test_seghead] Test failed.\n");
-  //     return -1;
-  // }
+  if(strstr(model, "mapsegm") != NULL) {
+    if (!test_seghead(model, precision, data)) {
+        printf("[test_seghead] Test failed.\n");
+        return -1;
+    }
+  }
 
-  // if(strcmp(model, "cameramapsegm") == 0) {
-  //   if (!test_camsegdecoder(model, precision, data)) {
-  //       printf("[test_camsegdecoder] Test failed.\n");
-  //       return -1;
-  //   }
-  // }
+  if(strcmp(model, "cameramapsegm") == 0) {
+    if (!test_camsegdecoder(model, precision, data)) {
+        printf("[test_camsegdecoder] Test failed.\n");
+        return -1;
+    }
+  }
 
-  // if(strcmp(model, "lidarmapsegm") == 0) {
-  //   if (!test_lidarsegencoder(model, precision, data)) {
-  //     printf("[test_lidarsegencoder] Test failed.\n");
-  //     return -1;
-  //   }
+  if(strcmp(model, "lidarmapsegm") == 0) {
+    if (!test_lidarsegencoder(model, precision, data)) {
+      printf("[test_lidarsegencoder] Test failed.\n");
+      return -1;
+    }
 
-  //   if (!test_lidarsegdecoder(model, precision, data)) {
-  //     printf("[test_lidarsegdecoder] Test failed.\n");
-  //     return -1;
-  //   }
-  // }
+    if (!test_lidarsegdecoder(model, precision, data)) {
+      printf("[test_lidarsegdecoder] Test failed.\n");
+      return -1;
+    }
+  }
 }
