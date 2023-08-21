@@ -51,6 +51,7 @@ include_directories(
   ../libraries/3DSparseConvolution/libspconv/include
   src/common
   src/
+  trt_plugins/GridsampleIPluginV2DynamicExt
 )
 
 link_directories(
@@ -59,6 +60,7 @@ link_directories(
   ../libraries/3DSparseConvolution/libspconv/lib/${arch}
   build
   $ENV{Python_Lib}
+  trt_plugins/GridsampleIPluginV2DynamicExt
 )
 
 file(GLOB_RECURSE CORE_FILES 
@@ -86,6 +88,7 @@ target_link_libraries(bevfusion_core
   libspconv.so
   ${Protobuf_LIBRARIES}
   libnvinfer_plugin.so
+  libGridSamplerPlugin.so
 )
 #######################################################################
 
@@ -102,6 +105,7 @@ target_link_libraries(bevfusion
   libspconv.so
   ${Protobuf_LIBRARIES}
   libnvinfer_plugin.so
+  libGridSamplerPlugin.so
 )
 #######################################################################
 
@@ -117,6 +121,7 @@ target_link_libraries(tester
   libspconv.so
   ${Protobuf_LIBRARIES}
   libnvinfer_plugin.so
+  libGridSamplerPlugin.so
 )
 
 ########################## libpybev.so ################################
